@@ -1,0 +1,6 @@
+gsbm-time-dependant-domains.pdf
+
+__pycache__/
+
+*.vtk
+*.log
