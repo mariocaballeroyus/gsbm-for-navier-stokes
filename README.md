@@ -15,6 +15,10 @@ cmake --build build/Release --target install -j"$(nproc)"
 export PYTHONPATH="$PWD/bin/Release" LD_LIBRARY_PATH="$PWD/bin/Release/libs"
 ```
 
+## Benchmarks
+
+- [Steady Poisson: convergence analysis (4.1.1)](gsbm_benchmark_4_1_1/README.md)
+
 ## References
 
 [1] O. Colomés, J. Modderman, G. Scovazzi. The generalized shifted boundary method for geometry-parametric PDEs and time-dependent domains. *Comput. Methods Appl. Mech. Engrg.* 452 (2026) 118748.

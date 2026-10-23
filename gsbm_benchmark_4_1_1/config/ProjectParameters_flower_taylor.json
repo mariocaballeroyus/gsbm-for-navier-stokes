@@ -1,0 +1,143 @@
+{
+    "problem_data": {
+        "problem_name": "flower_taylor",
+        "parallel_type": "OpenMP",
+        "echo_level": 0,
+        "start_time": 0.0,
+        "end_time": 1.0
+    },
+    "solver_settings": {
+        "model_part_name": "IgaModelPart",
+        "domain_size": 2,
+        "echo_level": 0,
+        "model_import_settings": {
+            "input_type": "use_input_model_part"
+        },
+        "material_import_settings": {
+            "materials_filename": "config/MaterialParameters.json"
+        },
+        "convection_diffusion_variables": {
+            "unknown_variable": "TEMPERATURE",
+            "diffusion_variable": "CONDUCTIVITY",
+            "volume_source_variable": "HEAT_FLUX",
+            "gradient_variable": "TEMPERATURE_GRADIENT"
+        },
+        "time_stepping": {
+            "time_step": 1.0
+        },
+        "linear_solver_settings": {
+            "solver_type": "sparse_lu"
+        }
+    },
+    "modelers": [{
+        "modeler_name": "NurbsGeometryModeler",
+        "Parameters": {
+            "model_part_name": "IgaModelPart",
+            "geometry_name": "background",
+            "lower_point_xyz": [0.0, 0.0, 0.0],
+            "upper_point_xyz": [1.0, 1.0, 0.0],
+            "lower_point_uvw": [0.0, 0.0, 0.0],
+            "upper_point_uvw": [1.0, 1.0, 0.0],
+            "polynomial_order": [1, 1],
+            "number_of_knot_spans": [40, 40]
+        }
+    }, {
+        "modeler_name": "IgaModelerGsbm",
+        "Parameters": {
+            "analysis_model_part_name": "IgaModelPart",
+            "geometry_name": "background",
+            "element_condition_list": [{
+                "type": "element",
+                "name": "GsbmLaplacianElement",
+                "iga_model_part": "Domain",
+                "shape_function_derivatives_order": 2
+            }, {
+                "type": "condition",
+                "name": "GsbmLaplacianConditionDirichlet",
+                "iga_model_part": "Dirichlet",
+                "shape_function_derivatives_order": 2,
+                "gsbm_parameters": {}
+            }, {
+                "type": "condition",
+                "name": "GsbmLaplacianConditionGhostPenalty",
+                "iga_model_part": "GhostPenalty",
+                "gsbm_parameters": {
+                    "skeleton_model_part": "Dirichlet"
+                }
+            }]
+        }
+    }, {
+        "modeler_name": "ImportNurbsSbmModeler",
+        "Parameters": {
+            "model_part_name": "Skin",
+            "input_filename": "config/skin_flower_nurbs.json",
+            "link_layer_to_condition_name": [{
+                "layer_name": "outer",
+                "condition_name": "GsbmLaplacianConditionDirichlet"
+            }]
+        }
+    }],
+    "processes": {
+        "gsbm_process_list": [{
+            "python_module": "volume_fraction_gsbm_process",
+            "kratos_module": "KratosMultiphysics.IgaApplication",
+            "Parameters": {
+                "model_part_name": "IgaModelPart",
+                "geometry_name": "background",
+                "elements_model_part_name": "IgaModelPart.Domain",
+                "skeleton_model_part_name": "IgaModelPart.Dirichlet",
+                "skin_model_part_outer_initial_name": "Skin"
+            }
+        }],
+        "boundary_conditions_process_list": [{
+            "python_module": "gsbm_processes",
+            "process_name": "BoundaryDataProcess",
+            "Parameters": {
+                "model_part_name": "Skin.outer.projection_data",
+                "background_model_part_name": "IgaModelPart",
+                "geometry_name": "background",
+                "variable_name": "TEMPERATURE",
+                "boundary_value": "sin(15*pi*x)*sin(15*pi*y)",
+                "volume_source": "450*pi^2*sin(15*pi*x)*sin(15*pi*y)"
+            }
+        }],
+        "source_process_list": [{
+            "python_module": "assign_scalar_variable_to_elements_process",
+            "kratos_module": "KratosMultiphysics",
+            "Parameters": {
+                "model_part_name": "IgaModelPart.Domain",
+                "variable_name": "HEAT_FLUX",
+                "value": "450*pi^2*sin(15*pi*x)*sin(15*pi*y)"
+            }
+        }],
+        "auxiliar_process_list": [{
+            "python_module": "gsbm_processes",
+            "process_name": "L2ErrorProcess",
+            "Parameters": {
+                "model_part_name": "IgaModelPart",
+                "geometry_name": "background",
+                "elements_model_part_name": "IgaModelPart.Domain",
+                "variable_name": "TEMPERATURE",
+                "exact_solution": "sin(15*pi*x)*sin(15*pi*y)",
+                "number_of_integration_points_per_span": 0
+            }
+        }]
+    },
+    "output_processes": {
+        "vtk_output": [{
+            "python_module": "gsbm_processes",
+            "process_name": "VtkFieldsOutputProcess",
+            "Parameters": {
+                "model_part_name": "IgaModelPart",
+                "geometry_name": "background",
+                "elements_model_part_name": "IgaModelPart.Domain",
+                "skin_model_part_name": "Skin.tessellation",
+                "variable_name": "TEMPERATURE",
+                "exact_solution": "sin(15*pi*x)*sin(15*pi*y)",
+                "number_of_samples": 401,
+                "output_file_name": "out/flower_taylor",
+                "skin_output_file_name": "out/skin_flower_nurbs"
+            }
+        }]
+    }
+}
