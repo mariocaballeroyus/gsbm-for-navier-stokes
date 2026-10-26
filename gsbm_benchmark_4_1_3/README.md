@@ -21,6 +21,17 @@ Dashed, the same sweep without the shifted subscale, `USE_RESIDUAL_TERMS` false 
 
 The $p = 1$ points are the results of [1], computed with the authors' Julia repository, [TheGeneralizedSBM.jl](https://github.com/CMOE-TUDelft/TheGeneralizedSBM.jl) [2], for the WSBM ($\alpha_h$), SBM ($\tilde{\alpha}_h$) and O-SBM ($\hat{\alpha}_h$, $\lambda = 0.5$) weights. Their absolute $L^2$ errors (Eq. 48) are in `config/reference_errors_p1.csv`, divided by $\Vert u \Vert$ in the figure.
 
+## Ghost regions at $p$-degree
+
+The fields at every degree on the $100 \times 100$ background, written to `out/circles_taylor_p<p>_d<d>.vtk`:
+
+```bash
+python3 MainKratos.py config/ProjectParameters_circles_taylor.json --degrees 1 2 3 4 --materials "config/MaterialParameters_p{p}.json"
+python3 figures.py
+```
+
+![](out/gsbm_circles_degrees.gif)
+
 ## References
 
 [1] O. Colomés, J. Modderman, G. Scovazzi. The generalized shifted boundary method for geometry-parametric PDEs and time-dependent domains. *Comput. Methods Appl. Mech. Engrg.* 452 (2026) 118748.

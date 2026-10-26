@@ -18,6 +18,7 @@ export PYTHONPATH="$PWD/bin/Release" LD_LIBRARY_PATH="$PWD/bin/Release/libs"
 ## Benchmarks
 
 - [Steady Poisson: convergence analysis (4.1.1)](gsbm_benchmark_4_1_1/README.md)
+- [Steady Poisson: moving boundaries (4.1.3)](gsbm_benchmark_4_1_3/README.md)
 
 ## References
 

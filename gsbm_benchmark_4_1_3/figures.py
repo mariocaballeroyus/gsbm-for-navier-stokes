@@ -9,7 +9,9 @@ MainKratos.py in out/:
   O-SBM weights of the GSBM paper, from its code
   (config/reference_errors_p1.csv, divided by ||u||), as points;
 - out/gsbm_circles_animation.gif: the field at every d of skins.py, as the
-  circles move, beside the errors with the current d marked.
+  circles move, beside the errors with the current d marked;
+- out/gsbm_circles_degrees.gif: the fields at the degrees 1 to 4 at every d,
+  side by side on one color scale, the ghost regions as the circles move.
 
     python3 figures.py
 """
@@ -31,8 +33,10 @@ CASE = "circles_taylor"
 DEGREES = (1, 2, 3, 4, 5)
 COLOURS = {1: "C0", 2: "C1", 3: "C2", 4: "C3", 5: "C4"}
 
-# The degree of the fields of the animation
+# The degree of the fields of the animation beside the errors, and the
+# degrees of the animation of the ghost regions
 FIELD_DEGREE = 5
+GHOST_DEGREES = (1, 2, 3, 4)
 
 # The standard Taylor shift without the shifted subscale, beside CASE
 STANDARD_CASE = "circles_standard"
@@ -144,6 +148,13 @@ def plot_sweep():
     plt.close(figure)
 
 
+def draw_skin(axis, skin):
+    """The loops of a skin, black on white to show on any color."""
+    for loop in skin:
+        axis.plot(loop[:, 0], loop[:, 1], color="white", linewidth=3.)
+        axis.plot(loop[:, 0], loop[:, 1], color="black", linewidth=1.4)
+
+
 def draw_field(axis, field, skin, bound, title=None):
     """u_h over the whole unit square, its extension outside the skin
     included, linear in [-1, 1], the range of u, and logarithmic beyond, up
@@ -152,9 +163,7 @@ def draw_field(axis, field, skin, bound, title=None):
     extent = (field["x"][0], field["x"][-1], field["y"][0], field["y"][-1])
     image = axis.imshow(field["u_h"].T, origin="lower", extent=extent, cmap="turbo", norm=norm,
                         interpolation="bilinear")
-    for loop in skin:
-        axis.plot(loop[:, 0], loop[:, 1], color="white", linewidth=3.)
-        axis.plot(loop[:, 0], loop[:, 1], color="black", linewidth=1.4)
+    draw_skin(axis, skin)
     axis.set_xlim(extent[:2])
     axis.set_ylim(extent[2:])
     axis.set_aspect("equal")
@@ -202,9 +211,7 @@ def animate():
         image.set_data(fields[frame]["u_h"].T)
         for line in field_axis.lines[:]:
             line.remove()
-        for loop in skins[frame]:
-            field_axis.plot(loop[:, 0], loop[:, 1], color="white", linewidth=3.)
-            field_axis.plot(loop[:, 0], loop[:, 1], color="black", linewidth=1.4)
+        draw_skin(field_axis, skins[frame])
         field_axis.set_title(f"$p = {FIELD_DEGREE}$,  $d = {position_name(D_VALUES[frame])}$")
         marker.set_xdata([D_VALUES[frame]] * 2)
 
@@ -216,7 +223,41 @@ def animate():
     plt.close(figure)
 
 
+def animate_degrees():
+    """The fields at the degrees GHOST_DEGREES at every d, side by side on one
+    color scale, each titled with its degree, as the circles move."""
+    from matplotlib.animation import FuncAnimation, PillowWriter
+    from skins import D_VALUES, position_name
+    names = [position_name(d) for d in D_VALUES]
+    fields = {degree: [read_fields(Path(f"out/{CASE}_p{degree}_d{name}.vtk")) for name in names]
+              for degree in GHOST_DEGREES}
+    skins = [read_skin(Path(f"out/skin_circles_nurbs_d{name}.vtk")) for name in names]
+    bound = max(np.abs(field["u_h"]).max() for frames in fields.values() for field in frames)
+
+    figure, axes = plt.subplots(1, len(GHOST_DEGREES), figsize=(24, 7.2), layout="constrained")
+    images = [draw_field(axis, fields[degree][0], skins[0], bound, f"$p = {degree}$")
+              for axis, degree in zip(axes, GHOST_DEGREES)]
+    field_colorbar(figure, images[0], axes, bound)
+    title = figure.suptitle("")
+
+    def update(frame):
+        for axis, image, degree in zip(axes, images, GHOST_DEGREES):
+            image.set_data(fields[degree][frame]["u_h"].T)
+            for line in axis.lines[:]:
+                line.remove()
+            draw_skin(axis, skins[frame])
+        title.set_text(f"$d = {position_name(D_VALUES[frame])}$")
+
+    # The circles approaching and merging, and back, to loop smoothly
+    count = len(D_VALUES)
+    frames = list(range(count - 1, -1, -1)) + list(range(1, count - 1))
+    animation = FuncAnimation(figure, update, frames=frames)
+    animation.save("out/gsbm_circles_degrees.gif", writer=PillowWriter(fps=4), dpi=60)
+    plt.close(figure)
+
+
 if __name__ == "__main__":
     os.chdir(Path(__file__).resolve().parent)
     plot_sweep()
     animate()
+    animate_degrees()
