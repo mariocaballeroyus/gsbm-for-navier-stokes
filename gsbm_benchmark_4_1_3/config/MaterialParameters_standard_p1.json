@@ -1,0 +1,15 @@
+{
+    "properties": [{
+        "model_part_name": "IgaModelPart",
+        "properties_id": 1,
+        "Material": {
+            "Variables": {
+                "CONDUCTIVITY": 1.0,
+                "PENALTY_FACTOR": 20.0,
+                "GHOST_PENALTY_FACTOR": 0.16666666666666666,
+                "USE_RESIDUAL_TERMS": false
+            },
+            "Tables": {}
+        }
+    }]
+}
