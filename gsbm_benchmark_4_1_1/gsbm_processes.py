@@ -1,8 +1,8 @@
 """
 Processes of the GSBM Poisson benchmark, chosen by "process_name":
 
-- BoundaryDataProcess: g and, for the stabilized shift, the derivatives of f
-  at the closest skin points;
+- BoundaryDataProcess: g at the closest skin points, and f and its
+  derivatives at the cut facets, for the shifted subscale of the Taylor shift;
 - L2ErrorProcess: the alpha-weighted L2 error of Eq. (48);
 - VtkFieldsOutputProcess: the fields on a uniform grid of the background, for
   ParaView.
@@ -71,18 +71,20 @@ def background_values(background, variable, grids):
 
 
 class BoundaryDataProcess(KM.Process):
-    """Assigns at the closest skin points what the GSBM Dirichlet conditions
-    read there: g, to the unknown, and for the stabilized shift
-    VOLUME_SOURCE_DERIVATIVES, f and its Cartesian derivatives of orders 0 to
-    p - 2, every order n as d_x^(n-k) d_y^k, k = 0 to n. g and f are
-    expressions of the Kratos function parser, f differentiated with SymPy.
-    The nodes are found when the step starts, as VolumeFractionGsbmProcess
-    creates them."""
+    """Assigns what the GSBM Dirichlet conditions read: g, to the unknown, at
+    the closest skin points, and VOLUME_SOURCE_DERIVATIVES, f and its
+    Cartesian derivatives of orders 0 to p - 2, every order n as
+    d_x^(n-k) d_y^k, k = 0 to n, at the points of the cut facets of
+    facets_model_part_name, those with an IDENTIFIER, for the shifted
+    subscale of the Taylor shift. g and f are expressions of the Kratos function
+    parser, f differentiated with SymPy. The nodes and cut facets are found
+    when the step starts, as VolumeFractionGsbmProcess creates them."""
 
     def __init__(self, model, settings):
         super().__init__()
         settings.ValidateAndAssignDefaults(KM.Parameters("""{
             "model_part_name": "",
+            "facets_model_part_name": "",
             "background_model_part_name": "",
             "geometry_name": "",
             "variable_name": "",
@@ -105,25 +107,29 @@ class BoundaryDataProcess(KM.Process):
         nodes = list(self.model[self.settings["model_part_name"].GetString()].Nodes)
         if not nodes:
             return  # no cut facets
-        x, y = np.array([[node.X, node.Y] for node in nodes]).T
 
         x_, y_, z_, t_ = self.symbols
 
-        def derivatives(expression, orders):
-            """Values at the nodes of every d_x^(n-k) d_y^k expression, n in orders."""
+        def derivatives(expression, orders, points):
+            """Values at the points of every d_x^(n-k) d_y^k expression, n in orders."""
+            x, y = np.array([[point.X, point.Y] for point in points]).T
             columns = []
             for n in orders:
                 for k in range(n + 1):
                     derivative = expression.diff(*[x_] * (n - k), *[y_] * k) if n > 0 else expression
                     values = sp.lambdify(self.symbols, derivative, "numpy")(x, y, 0., time)
                     columns.append(np.broadcast_to(values, x.shape))
-            return np.array(columns).T.reshape(len(nodes), -1)
+            return np.array(columns).T.reshape(len(points), -1)
 
-        g = derivatives(self.g, [0])[:, 0]
-        f_derivatives = derivatives(self.f, range(degree - 1))
-        for node, value, f_row in zip(nodes, g, f_derivatives):
+        for node, value in zip(nodes, derivatives(self.g, [0], nodes)[:, 0]):
             node.SetValue(self.variable, value)
-            node.SetValue(IGA.VOLUME_SOURCE_DERIVATIVES, KM.Vector(f_row.tolist()))
+
+        # The cut facets, at their points (the centers of their - sides)
+        facets = [facet for facet in self.model[self.settings["facets_model_part_name"].GetString()].Conditions
+                  if facet.Has(KM.IDENTIFIER)]
+        points = [facet.GetGeometry().Center() for facet in facets]
+        for facet, f_row in zip(facets, derivatives(self.f, range(degree - 1), points)):
+            facet.SetValue(IGA.VOLUME_SOURCE_DERIVATIVES, KM.Vector(f_row.tolist()))
 
 
 class L2ErrorProcess(KM.Process):

@@ -1,6 +1,6 @@
 {
     "problem_data": {
-        "problem_name": "flower_stabilized",
+        "problem_name": "heart_standard",
         "parallel_type": "OpenMP",
         "echo_level": 0,
         "start_time": 0.0,
@@ -14,7 +14,7 @@
             "input_type": "use_input_model_part"
         },
         "material_import_settings": {
-            "materials_filename": "config/MaterialParameters.json"
+            "materials_filename": "config/MaterialParameters_standard.json"
         },
         "convection_diffusion_variables": {
             "unknown_variable": "TEMPERATURE",
@@ -53,7 +53,7 @@
                 "shape_function_derivatives_order": 2
             }, {
                 "type": "condition",
-                "name": "GsbmLaplacianConditionDirichletStabilized",
+                "name": "GsbmLaplacianConditionDirichlet",
                 "iga_model_part": "Dirichlet",
                 "shape_function_derivatives_order": 2,
                 "gsbm_parameters": {}
@@ -70,10 +70,10 @@
         "modeler_name": "ImportNurbsSbmModeler",
         "Parameters": {
             "model_part_name": "Skin",
-            "input_filename": "config/skin_flower_nurbs.json",
+            "input_filename": "config/skin_heart_nurbs.json",
             "link_layer_to_condition_name": [{
                 "layer_name": "outer",
-                "condition_name": "GsbmLaplacianConditionDirichletStabilized"
+                "condition_name": "GsbmLaplacianConditionDirichlet"
             }]
         }
     }],
@@ -94,6 +94,7 @@
             "process_name": "BoundaryDataProcess",
             "Parameters": {
                 "model_part_name": "Skin.outer.projection_data",
+                "facets_model_part_name": "IgaModelPart.Dirichlet",
                 "background_model_part_name": "IgaModelPart",
                 "geometry_name": "background",
                 "variable_name": "TEMPERATURE",
@@ -135,8 +136,8 @@
                 "variable_name": "TEMPERATURE",
                 "exact_solution": "sin(15*pi*x)*sin(15*pi*y)",
                 "number_of_samples": 401,
-                "output_file_name": "out/flower_stabilized",
-                "skin_output_file_name": "out/skin_flower_nurbs"
+                "output_file_name": "out/heart_standard",
+                "skin_output_file_name": "out/skin_heart_nurbs"
             }
         }]
     }

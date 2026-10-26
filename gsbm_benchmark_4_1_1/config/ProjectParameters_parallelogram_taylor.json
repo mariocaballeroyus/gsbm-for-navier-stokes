@@ -94,6 +94,7 @@
             "process_name": "BoundaryDataProcess",
             "Parameters": {
                 "model_part_name": "Skin.outer.projection_data",
+                "facets_model_part_name": "IgaModelPart.Dirichlet",
                 "background_model_part_name": "IgaModelPart",
                 "geometry_name": "background",
                 "variable_name": "TEMPERATURE",

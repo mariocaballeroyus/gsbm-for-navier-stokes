@@ -120,8 +120,8 @@ def main():
             if arguments.materials:
                 set_materials(parameters, arguments.materials, degree)
             case = parameters["problem_data"]["problem_name"].GetString()
-            # The paper's WSBM curves are for Q1 elements
-            paper = PAPER_WSBM[case.split("_")[0]] if degree == 1 else {}
+            # The paper's WSBM curves are for Q1 elements, on its domains
+            paper = PAPER_WSBM.get(case.split("_")[0], {}) if degree == 1 else {}
             cases_run.add(case)
             print(f"\n{case}, p = {degree}")
             print(f"{'N':>5} {'L2 error':>11} {'relative':>11} {'rate':>6} {'paper':>9} {'time [s]':>9}")

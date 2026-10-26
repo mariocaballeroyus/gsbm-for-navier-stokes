@@ -2,20 +2,25 @@
 The figures of the benchmark, as those of the IGUANA study, from the outputs
 of MainKratos.py and convergence.py in out/:
 
-- out/gsbm_poisson_degrees_<domain>.png: u_h of the stabilized shift over
-  the whole unit square, its extension outside the domain included, at the
-  degrees 1 to 4 on N = 40, on one color scale, linear in [-1, 1] and
-  logarithmic beyond, each titled with its degree;
-- out/gsbm_poisson_shifts_<domain>.png: on the left, the field of the
-  stabilized shift at p = 5 on the 40 x 40 grid of the json; on the right, a
-  column for every shift in SHIFTS with its convergence at the degrees 1 to
-  5, relative errors against h from N = 40, with the slope h^(p+1) of every
-  degree through its error on N = 80;
-- out/gsbm_poisson_taylor.png: the same convergence for the standard Taylor
-  shift of the SBM papers, a panel per domain.
+- out/gsbm_poisson_degrees_<domain>.png: u_h over the whole unit square, its
+  extension outside the domain included, at the degrees 1 to 4 on N = 40, on
+  one color scale, linear in [-1, 1] and logarithmic beyond, each titled with
+  its degree;
+- out/gsbm_poisson_shifts_<domain>.png: on the left, the field at p = 5 on
+  the 40 x 40 grid of the json; on the right, a column for every shift in
+  SHIFTS with its convergence at the degrees 1 to 5, relative errors against
+  h from N = 40, with the slope h^(p+1) of every degree through its error on
+  N = 80;
+- out/gsbm_poisson_standard.png: the same convergence for the standard
+  Taylor shift of the SBM papers, without the shifted subscale, a panel per
+  domain;
+- out/gsbm_poisson_penalties.png: that shift at p = 3 for every combination
+  of the Nitsche and ghost penalty factors of penalties.py, against the shift
+  with the subscale, a panel per domain.
 
-The stabilized shift has its residual terms on (USE_RESIDUAL_TERMS), and the
-ghost penalty of Sticko and Kreiss, kappa_p = 0.5 / ((p!)^2 (2p + 1)), of
+The Taylor shift has its shifted subscale on (USE_RESIDUAL_TERMS), off in
+config/MaterialParameters_standard_p<p>.json, and the ghost penalty of Sticko
+and Kreiss, kappa_p = 0.5 / ((p!)^2 (2p + 1)), of
 config/MaterialParameters_p<p>.json:
 
     python3 figures.py
@@ -34,7 +39,7 @@ import numpy as np
 plt.rcParams.update({"font.size": 17, "axes.labelsize": 20, "axes.titlesize": 21, "xtick.labelsize": 17,
                      "ytick.labelsize": 17, "legend.fontsize": 16, "legend.title_fontsize": 16})
 
-DOMAINS = ("circle", "flower", "parallelogram")
+DOMAINS = ("circle", "flower", "parallelogram", "heart")
 DEGREES = (1, 2, 3, 4)
 COLOURS = {1: "C0", 2: "C1", 3: "C2", 4: "C3", 5: "C4"}
 
@@ -43,7 +48,7 @@ CONVERGENCE_DEGREES = (1, 2, 3, 4, 5)
 
 # The shift of the fields, the mesh of the fields at all degrees, and the
 # degree and mesh of the field beside the convergence
-FIELD_SHIFT = "stabilized"
+FIELD_SHIFT = "taylor"
 DEGREES_CELLS = 40
 FIELD = (5, 40)
 
@@ -51,10 +56,17 @@ FIELD = (5, 40)
 # through N = 80
 MIN_CELLS = 40
 ANCHOR_CELLS = 80
-SHIFTS = (("stabilized", "stabilized shift, residual terms on"),)
+SHIFTS = (("taylor", "Taylor shift, shifted subscale on"),)
 
-# The standard Taylor shift of the SBM papers, in its own figure
-STANDARD_SHIFT = "taylor"
+# The standard Taylor shift of the SBM papers, without the shifted subscale,
+# in its own figure
+STANDARD_SHIFT = "standard"
+
+# The degree of the penalty study of the standard shift, out/penalties_p3.csv,
+# and the degrees of the shift with the subscale beside it, with their colour
+# and marker
+PENALTY_DEGREE = 3
+PENALTY_REFERENCES = ((3, "C3", "o"), (2, "C1", "s"))
 
 # The errors of the GSBM paper at p = 1, from its code (absolute, Eq. 48), as
 # points with a marker per weighting
@@ -111,7 +123,10 @@ def read_reference():
 
 def plot_reference(axis, reference, domain, anchor=(0., 1.)):
     """The paper's errors as points, in a legend of their own at the top
-    left, its corner at an anchor in axes coordinates."""
+    left, its corner at an anchor in axes coordinates; none on the domains
+    that are not the paper's."""
+    if not any(d == domain for (_, d, _) in reference):
+        return
     degrees = axis.get_legend()
     for weights, label, marker in REFERENCE_WEIGHTS:
         pairs = sorted((cells, error) for (w, d, cells), error in reference.items()
@@ -160,7 +175,7 @@ def field_colorbar(figure, image, axes, bound):
 
 
 def plot_degrees(domain):
-    """The fields of the stabilized shift at every degree."""
+    """The fields at every degree."""
     skin = read_skin(Path(f"out/skin_{domain}_nurbs.vtk"))
     fields = [read_fields(Path(f"out/{domain}_{FIELD_SHIFT}_p{degree}_N{DEGREES_CELLS}.vtk"))
               for degree in DEGREES]
@@ -275,8 +290,9 @@ def plot_shifts(domain, errors):
 
 
 def plot_standard_shift(errors):
-    """The convergence of the standard Taylor shift on every domain, side by
-    side on one y-axis, each titled with its domain."""
+    """The convergence of the standard Taylor shift, without the shifted
+    subscale, on every domain, side by side on one y-axis, each titled with
+    its domain."""
     figure, axes = plt.subplots(1, len(DOMAINS), figsize=(6.5 * len(DOMAINS), 8.5), sharex=True, sharey=True,
                                 layout="constrained")
     reference = read_reference()
@@ -298,7 +314,81 @@ def plot_standard_shift(errors):
     axes[0].set_xticks([10.**k for k in exponents], [f"$10^{{{k:g}}}$" for k in exponents])
     axes[0].xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
 
-    figure.savefig("out/gsbm_poisson_taylor.png", dpi=110, bbox_inches="tight", pad_inches=.1)
+    figure.savefig("out/gsbm_poisson_standard.png", dpi=110, bbox_inches="tight", pad_inches=.1)
+    plt.close(figure)
+
+
+def read_penalties():
+    """Relative errors in out/penalties_p3.csv, keyed by domain, the factors
+    chi and kappa, and mesh."""
+    errors = {}
+    path = Path("out/penalties_p3.csv")
+    if path.exists():
+        with open(path) as f:
+            for row in csv.DictReader(f):
+                key = (row["case"].split("_", 1)[0], float(row["chi"]), float(row["kappa"]), int(row["N"]))
+                errors[key] = float(row["relative_error"])
+    return errors
+
+
+def plot_penalties(errors, penalties):
+    """The convergence of the standard Taylor shift at p = 3 for every
+    combination of the penalty factors, a colour per chi and a line style per
+    kappa, against the shift with the subscale at the factors of the
+    materials, at p = 3 in red and p = 2 in orange, a panel per domain, with
+    the slope h^4 through the subscale at p = 3 on N = 80."""
+    chis = sorted({chi for _, chi, _, _ in penalties})
+    kappas = sorted({kappa for _, _, kappa, _ in penalties})
+    colours = dict(zip(chis, plt.cm.viridis(np.linspace(0., .85, len(chis)))))
+    styles = dict(zip(kappas, (":", "-.", "--", "-")))
+    subscale = SHIFTS[0][0]
+    figure, axes = plt.subplots(1, len(DOMAINS), figsize=(6.5 * len(DOMAINS), 8.5), sharex=True, sharey=True,
+                                layout="constrained")
+    for axis, domain in zip(axes, DOMAINS):
+        for chi in chis:
+            for kappa in kappas:
+                pairs = sorted((cells, error) for (d, c, k, cells), error in penalties.items()
+                               if (d, c, k) == (domain, chi, kappa))
+                if len(pairs) > 1:
+                    cells, values = map(np.array, zip(*pairs))
+                    axis.loglog(1. / cells, values, color=colours[chi], linestyle=styles[kappa], linewidth=1.8,
+                                marker="o", markersize=4)
+        for degree, colour, marker in PENALTY_REFERENCES:
+            pairs = sorted((cells, error) for (s, d, p, cells), error in errors.items()
+                           if (s, d, p) == (subscale, domain, degree) and cells >= MIN_CELLS)
+            cells, values = map(np.array, zip(*pairs))
+            axis.loglog(1. / cells, values, color=colour, linewidth=3.6, marker=marker, markersize=9, zorder=5)
+        anchor = errors[(subscale, domain, PENALTY_DEGREE, ANCHOR_CELLS)]
+        h = np.array([10.**-2.55, 10.**-1.5])
+        axis.loglog(h, .3 * anchor * (h * ANCHOR_CELLS)**(PENALTY_DEGREE + 1), color="black", linewidth=1.,
+                    linestyle=(0, (1, 3)))
+        axis.set_title(domain.capitalize())
+        axis.set_xlabel("$h$")
+        axis.grid(True, which="both", alpha=.3)
+    axes[0].set_ylabel(r"$\Vert u - u_h\Vert \,/\, \Vert u\Vert$")
+    for axis in axes[1:]:
+        axis.tick_params(which="both", labelleft=False)
+    axes[0].set_xlim(10.**-2.55, 10.**-1.5)
+    exponents = (-2.5, -2., -1.5)
+    axes[0].set_xticks([10.**k for k in exponents], [f"$10^{{{k:g}}}$" for k in exponents])
+    axes[0].xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+
+    # Below the panels, a row of the factors and one of the references
+    line = matplotlib.lines.Line2D
+    factors = ([line([], [], color=colours[chi], linewidth=2.4) for chi in chis]
+               + [line([], [], color="0.3", linestyle=styles[kappa], linewidth=1.8) for kappa in kappas])
+    factor_labels = [f"$\\chi = {chi:g}$" for chi in chis] + [f"$\\kappa = {kappa:g}$" for kappa in kappas]
+    references = ([line([], [], color=colour, linewidth=3.6, marker=marker, markersize=9)
+                   for _, colour, marker in PENALTY_REFERENCES]
+                  + [line([], [], color="black", linewidth=1., linestyle=(0, (1, 3)))])
+    reference_labels = [f"$p = {degree}$" for degree, _, _ in PENALTY_REFERENCES] + [f"$h^{PENALTY_DEGREE + 1}$"]
+    legends = [figure.legend(factors, factor_labels, loc="upper center", bbox_to_anchor=(.5, 0.),
+                             ncols=len(factors), title="without the subscale, $p = 3$"),
+               figure.legend(references, reference_labels, loc="upper center", bbox_to_anchor=(.5, -.11),
+                             ncols=len(references), handlelength=4.,
+                             title="with the subscale, $\\chi = 20$, $\\kappa = 0.5$")]
+    figure.savefig("out/gsbm_poisson_penalties.png", dpi=110, bbox_inches="tight", pad_inches=.1,
+                   bbox_extra_artists=legends)
     plt.close(figure)
 
 
@@ -309,3 +399,6 @@ if __name__ == "__main__":
         plot_degrees(domain)
         plot_shifts(domain, errors)
     plot_standard_shift(errors)
+    penalties = read_penalties()
+    if penalties:
+        plot_penalties(errors, penalties)
