@@ -16,6 +16,10 @@ of MainKratos.py and convergence.py in out/:
 - out/gsbm_poisson_subscale.png: the same convergence for the symmetric
   Nitsche method with the shifted subscale, at the degrees 1 to 5, a panel
   per domain;
+- out/gsbm_poisson_penalty.png: the same convergence for the Nitsche penalty,
+  a panel per domain: the skew-symmetric method without penalty, over the
+  symmetric method and the skew-symmetric one with it, both faded, the latter
+  in hollow markers;
 - out/gsbm_poisson_domain_error.png: the convergence of DOMAIN_ERROR_SHIFT
   in the L2 norm inside the domain, a panel per domain, with its
   alpha-weighted error of Eq. (48) faded beneath.
@@ -26,7 +30,8 @@ shift of order p is that of config/MaterialParameters_skew_unenhanced_p<p>.json;
 shifted subscale, the cases <domain>_subscale of out/convergence_p<p>.csv,
 is the symmetric Nitsche method with the penalty chi (p + 1)^2, chi = 20,
 and the enhanced shift rewritten with the equation from the closest boundary
-point. All have the ghost penalty of Sticko and Kreiss, kappa_p = 0.5 /
+point; the cases <domain>_symmetric and <domain>_skew_penalty have that penalty
+and the enhanced shift, without the subscale. All have the ghost penalty of Sticko and Kreiss, kappa_p = 0.5 /
 ((p!)^2 (2p + 1)):
 
     python3 figures.py
@@ -53,6 +58,12 @@ DEGREES = (1, 2, 3, 4, 5)
 COLOURS = {1: "#0072B2", 2: "#D55E00", 3: "#009E73", 4: "#CC79A7", 5: "#E69F00"}
 INK = "#1f1f1e"
 
+# The styles of the convergence curves: the main one, one faded beneath it, and
+# one faded in hollow markers beneath it
+FILLED_STYLE = dict(markersize=4.5, linewidth=2.2)
+FADED_STYLE = dict(alpha=.5, markersize=3.5, linewidth=1.4)
+HOLLOW_STYLE = dict(alpha=.5, markersize=5.5, markerfacecolor="white", markeredgewidth=1.2, linewidth=1.2, linestyle="--")
+
 # The degrees of the convergence plots, and of the shifted subscale's
 CONVERGENCE_DEGREES = (1, 2, 3, 4, 5)
 SUBSCALE_DEGREES = (1, 2, 3, 4, 5)
@@ -76,6 +87,10 @@ SHIFTS_LEGEND_HEIGHT = .1
 
 # The symmetric Nitsche method with the shifted subscale, in its own figure
 SUBSCALE_SHIFT = "subscale"
+
+# The two methods with the Nitsche penalty, in their own figure
+SYMMETRIC_SHIFT = "symmetric"
+SKEW_PENALTY_SHIFT = "skew_penalty"
 
 # The shift whose error inside the domain has its own figure
 DOMAIN_ERROR_SHIFT = "skew"
@@ -203,10 +218,11 @@ def plot_degrees(domain):
     plt.close(figure)
 
 
-def plot_convergence(axis, errors, shift, domain, title, degrees=CONVERGENCE_DEGREES, faded=False):
+def plot_convergence(axis, errors, shift, domain, title, degrees=CONVERGENCE_DEGREES, faded=False, hollow=False):
     """The errors of a shift at every degree, a marker on every mesh; faded,
-    thinner and without labels, beneath another shift."""
-    style = dict(alpha=.5, markersize=3.5, linewidth=1.4) if faded else dict(markersize=4.5, linewidth=2.2)
+    thinner and without labels, beneath another shift; hollow, the same with
+    dashes and open markers."""
+    style = (HOLLOW_STYLE if hollow else FADED_STYLE if faded else FILLED_STYLE)
     for degree in degrees:
         pairs = sorted((cells, error) for (s, d, p, cells), error in errors.items()
                        if (s, d, p) == (shift, domain, degree) and cells >= MIN_CELLS)
@@ -214,11 +230,11 @@ def plot_convergence(axis, errors, shift, domain, title, degrees=CONVERGENCE_DEG
             continue
         cells, values = map(np.array, zip(*pairs))
         axis.loglog(1. / cells, values, color=COLOURS[degree], marker="o",
-                    label="_faded" if faded else f"$p = {degree}$", **style)
+                    label="_unlabelled" if faded or hollow else f"$p = {degree}$", **style)
     if title:
         axis.set_title(title)
     axis.grid(True, which="both", alpha=.3)
-    if not faded:
+    if not faded and not hollow:
         axis.legend(loc="lower right")
 
 
@@ -346,6 +362,41 @@ def plot_subscale(errors):
     plt.close(figure)
 
 
+def plot_penalty(errors):
+    """The convergence of the skew-symmetric method without penalty on every
+    domain, side by side on one y-axis, over the two methods with the Nitsche
+    penalty, faded, with the slopes through the former."""
+    figure, axes = plt.subplots(1, len(DOMAINS), figsize=(6.5 * len(DOMAINS), 8.5), sharex=True, sharey=True,
+                                layout="constrained")
+    line = matplotlib.lines.Line2D
+    styles = [line([], [], color="black", marker="o", **FILLED_STYLE), line([], [], color="black", marker="o", **FADED_STYLE),
+              line([], [], color="black", marker="o", **HOLLOW_STYLE)]
+    labels = [r"skew-symmetric, $\chi = 0$", r"symmetric, $\chi = 20$", r"skew-symmetric, $\chi = 20$"]
+    for axis, domain in zip(axes, DOMAINS):
+        plot_convergence(axis, errors, SYMMETRIC_SHIFT, domain, None, faded=True)
+        plot_convergence(axis, errors, SKEW_PENALTY_SHIFT, domain, None, hollow=True)
+        plot_convergence(axis, errors, "skew", domain, domain.capitalize())
+        axis.add_artist(matplotlib.legend.Legend(axis, styles, labels, loc="upper left"))
+        axis.set_xlabel("$h$")
+    axes[0].set_ylabel(r"$\Vert u - u_h\Vert \,/\, \Vert u\Vert$")
+    for axis in axes[1:]:
+        axis.tick_params(which="both", labelleft=False)
+
+    # As in plot_shifts: the slopes once the shared limits are known, with room
+    # above the curves for the legend of the methods
+    axes[0].set_xlim(*H_LIMITS)
+    limits = axes[0].get_xlim(), axes[0].get_ylim()
+    lowest = min(plot_slopes(axis, errors, "skew", domain, limits) for axis, domain in zip(axes, DOMAINS))
+    axes[0].set_xlim(limits[0])
+    axes[0].set_ylim(lowest, 100. * limits[1][1])
+    exponents = (-2.5, -2., -1.5)
+    axes[0].set_xticks([10.**k for k in exponents], [f"$10^{{{k:g}}}$" for k in exponents])
+    axes[0].xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+
+    figure.savefig("out/gsbm_poisson_penalty.png", dpi=110, bbox_inches="tight", pad_inches=.1)
+    plt.close(figure)
+
+
 def plot_domain_error(errors, domain_errors):
     """The convergence of DOMAIN_ERROR_SHIFT inside the domain on every
     domain, side by side on one y-axis, with its alpha-weighted error faded
@@ -390,6 +441,7 @@ if __name__ == "__main__":
         plot_degrees(domain)
         plot_shifts(domain, errors)
     plot_subscale(errors)
+    plot_penalty(errors)
     domain_errors = read_errors("relative_error_domain")
     if any(shift == DOMAIN_ERROR_SHIFT for shift, _, _, _ in domain_errors):
         plot_domain_error(errors, domain_errors)

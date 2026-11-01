@@ -15,7 +15,7 @@ with the manufactured solution $u = \sin(15\pi x)\sin(15\pi y)$ (Eq. 47), on the
 
 A background B-spline patch of degree $p$ is used on $N \times N$ knot spans, $h = 1/N$: for the convergence rates, the 49 meshes $N = 40 \cdot 2^{k/16}$, $k = 0, \dots, 48$, rounded, from 40 to 320, so that the boundaries cut the knot spans differently on every mesh. Integration is exact using a Gauss-Legendre rule with $(p+1)^2$ points per span.
 
-The Dirichlet condition is imposed with the **skew-symmetric Nitsche method without penalty** [4, 5]: the adjoint term with its sign flipped, and no Nitsche penalty, as its stability does not rely on one. With the symmetric method and its penalty of [1], the errors at $p \geq 3$ jump from one mesh to the next for any penalty, as it enforces the extrapolated trace too strongly. The shift is the **enhanced operator** of [6]: the Taylor expansion of order $2p$, which for tensor-product B-splines of degree $p$ is the full one, the knot span's polynomial evaluated at the true boundary point.
+The Dirichlet condition is imposed with the **skew-symmetric Nitsche method without penalty** [4, 5]: the adjoint term with its sign flipped, and no Nitsche penalty, as its stability does not rely on one. With the symmetric method and its penalty of [1], the errors at $p \geq 3$ jump from one mesh to the next for any penalty, see [The Nitsche penalty](#the-nitsche-penalty). The shift is the **enhanced operator** of [6]: the Taylor expansion of order $2p$, which for tensor-product B-splines of degree $p$ is the full one, the knot span's polynomial evaluated at the true boundary point.
 
 The **ghost penalty** is scaled with the polynomial degree as in [2], with $\kappa = 0.5$ of [1] (Eq. 17):
 
@@ -25,7 +25,7 @@ The **ghost penalty** is scaled with the polynomial degree as in [2], with $\kap
 
 These are `ADJOINT_FACTOR` $= -1$, `PENALTY_FACTOR` $= 0$ and `SHIFT_ORDER` $= 2p$ in `config/MaterialParameters_skew_p<p>.json`.
 
-## Convergence rates at $p$-degree
+## Convergence rates
 
 For B-splines of degree $p$, the optimal convergence rate in the $L^2$ norm is $p + 1$, $\Vert u - u_h \Vert = \mathcal{O}(h^{p+1})$ with $h = 1/N$.
 
@@ -61,7 +61,7 @@ The $p = 1$ WSBM, SBM and O-SBM results from [1] are computed with the authors' 
 |  | SBM | $2.23 \cdot 10^{-1}$ | $5.59 \cdot 10^{-2}$ | $1.24 \cdot 10^{-2}$ | $3.01 \cdot 10^{-3}$ | $8.11 \cdot 10^{-4}$ |
 |  | O-SBM | $1.26 \cdot 10^{-1}$ | $3.51 \cdot 10^{-2}$ | $8.91 \cdot 10^{-3}$ | $2.62 \cdot 10^{-3}$ | $8.18 \cdot 10^{-4}$ |
 
-## Ghost regions at $p$-degree
+## Ghost regions
 
 The fields at every degree on $N = 40$, written to `out/<domain>_skew_p<p>_N40.vtk`:
 
@@ -75,6 +75,23 @@ python3 figures.py  # the figures of all sections
 ![](out/gsbm_poisson_degrees_flower.png)
 
 ![](out/gsbm_poisson_degrees_parallelogram.png)
+
+## The Nitsche penalty
+
+At $p \geq 3$ we suspect the **Nitsche penalty** of causing the **erratic and oscillating results** of the symmetric method of [1], through the shift that it applies to both the test and the trial function,
+
+$$\begin{aligned}
+a_N(u_h, v_h) = &- \big\langle [\![\alpha_h v_h]\!], \{\!\{\partial_n u_h\}\!\}_\gamma \big\rangle_{\mathcal{E}^h} - \theta \, \big\langle \{\!\{\partial_n v_h\}\!\}_\gamma, [\![\alpha_h]\!] \, \{\!\{S_d u_h\}\!\}_\gamma \big\rangle_{\mathcal{E}^h} \\
+&+ \Big\langle \frac{\chi (p+1)^2}{h} \, \big|[\![\alpha_h]\!]\big| \, \{\!\{S_d v_h\}\!\}_\gamma, \{\!\{S_d u_h\}\!\}_\gamma \Big\rangle_{\mathcal{E}^h},
+\end{aligned}$$
+
+$$l_N(v_h) = - \theta \, \big\langle \{\!\{\partial_n v_h\}\!\}_\gamma, [\![\alpha_h]\!] \, g_D \big\rangle_{\mathcal{E}^h} + \Big\langle \frac{\chi (p+1)^2}{h} \, \big|[\![\alpha_h]\!]\big| \, \{\!\{S_d v_h\}\!\}_\gamma, g_D \Big\rangle_{\mathcal{E}^h},$$
+
+with $S_d$ the expansion of the polynomial of each span to the closest boundary point, where $g_D$ is taken. The symmetric method [1] has $\theta = 1$ and the skew-symmetric one [4, 5] $\theta = -1$. These are `ADJOINT_FACTOR` $= \theta$ and `PENALTY_FACTOR` $= \chi$, and `SHIFT_ORDER` is the order of $S_d$.
+
+The shift reaches the test function only through the penalty: the consistency term has no shift, and the adjoint term shifts the trial function alone. The penalty is therefore the one term with the extrapolation on both functions, quadratic in it and scaled by $\chi (p+1)^2 / h$.
+
+![](out/gsbm_poisson_penalty.png)
 
 ## The shifted subscale
 
