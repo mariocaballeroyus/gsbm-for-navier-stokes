@@ -5,9 +5,10 @@
         "Material": {
             "Variables": {
                 "CONDUCTIVITY": 1.0,
-                "PENALTY_FACTOR": 20.0,
-                "GHOST_PENALTY_FACTOR": 0.16666666666666666,
-                "USE_RESIDUAL_TERMS": false
+                "PENALTY_FACTOR": 0.0,
+                "GHOST_PENALTY_FACTOR": 0.001984126984126984,
+                "ADJOINT_FACTOR": -1.0,
+                "SHIFT_ORDER": 3
             },
             "Tables": {}
         }

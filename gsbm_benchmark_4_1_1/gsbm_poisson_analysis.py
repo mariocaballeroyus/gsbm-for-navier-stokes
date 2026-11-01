@@ -136,9 +136,11 @@ class GsbmPoissonAnalysis(AnalysisStage):
         return "GSBM Poisson Analysis"
 
     def GetFinalData(self):
-        """The L2 error and the L2 norm of u, if an L2ErrorProcess computed them."""
+        """The L2 error and the L2 norm of u, if an L2ErrorProcess computed them,
+        alpha-weighted and in the domain."""
         data = {}
         for process in self._GetListOfProcesses():
             if isinstance(process, L2ErrorProcess):
-                data.update(l2_error=process.l2_error, l2_norm=process.l2_norm)
+                data.update(l2_error=process.l2_error, l2_norm=process.l2_norm,
+                            l2_error_domain=process.l2_error_domain, l2_norm_domain=process.l2_norm_domain)
         return data

@@ -1,6 +1,6 @@
 {
     "problem_data": {
-        "problem_name": "circle_standard",
+        "problem_name": "parallelogram_skew_unenhanced",
         "parallel_type": "OpenMP",
         "echo_level": 0,
         "start_time": 0.0,
@@ -14,7 +14,7 @@
             "input_type": "use_input_model_part"
         },
         "material_import_settings": {
-            "materials_filename": "config/MaterialParameters_standard.json"
+            "materials_filename": "config/MaterialParameters_skew_unenhanced.json"
         },
         "convection_diffusion_variables": {
             "unknown_variable": "TEMPERATURE",
@@ -70,7 +70,7 @@
         "modeler_name": "ImportNurbsSbmModeler",
         "Parameters": {
             "model_part_name": "Skin",
-            "input_filename": "config/skin_circle_nurbs.json",
+            "input_filename": "config/skin_parallelogram_nurbs.json",
             "link_layer_to_condition_name": [{
                 "layer_name": "outer",
                 "condition_name": "GsbmLaplacianConditionDirichlet"
@@ -120,7 +120,8 @@
                 "elements_model_part_name": "IgaModelPart.Domain",
                 "variable_name": "TEMPERATURE",
                 "exact_solution": "sin(15*pi*x)*sin(15*pi*y)",
-                "number_of_integration_points_per_span": 0
+                "number_of_integration_points_per_span": 0,
+                "skin_model_part_name": "Skin.tessellation"
             }
         }]
     },
@@ -136,8 +137,8 @@
                 "variable_name": "TEMPERATURE",
                 "exact_solution": "sin(15*pi*x)*sin(15*pi*y)",
                 "number_of_samples": 401,
-                "output_file_name": "out/circle_standard",
-                "skin_output_file_name": "out/skin_circle_nurbs"
+                "output_file_name": "out/parallelogram_skew_unenhanced",
+                "skin_output_file_name": "out/skin_parallelogram_nurbs"
             }
         }]
     }

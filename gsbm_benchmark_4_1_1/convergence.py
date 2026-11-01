@@ -2,18 +2,22 @@
 Convergence study: every case on N x N knot spans (N = 20 to 320 by default)
 at every given degree p (by default the one of its json), with the other
 settings of its ProjectParameters json and without the field output. Writes
-the L2 error of Eq. (48), the relative one, ||u - u_h|| / ||u||, and the rate
-to out/convergence_p<p>.csv, replacing only the cases run, and the Kratos log
-to out/convergence_p<p>.log. All cases by default:
+the L2 error of Eq. (48), the relative one, ||u - u_h|| / ||u||, the rate
+and, if the json's L2ErrorProcess has a skin, the relative L2 error in the
+domain alone to out/convergence_p<p>.csv after every run, replacing only the cases and
+meshes run, and appends the Kratos log to out/convergence_p<p>.log. All
+cases by default:
 
     python3 convergence.py [config/ProjectParameters_<case>.json ...] [--degrees 1 2 3 4]
-        [--sizes 40 80 160 320] [--materials "config/MaterialParameters_p{p}.json"]
+        [--sizes 40 80 160 320] [--materials "config/MaterialParameters_skew_p{p}.json"]
 
 --materials takes the materials of every degree instead of those of the json,
 with {p} for the degree. figures.py plots the results.
 """
 
 import argparse
+import csv
+import fcntl
 import os
 import sys
 import time
@@ -27,6 +31,7 @@ import KratosMultiphysics as KM
 from gsbm_poisson_analysis import GsbmPoissonAnalysis
 
 SIZES = (20, 40, 80, 160, 320)
+COLUMNS = ("case", "N", "l2_error", "relative_error", "rate", "paper_wsbm", "time_s", "relative_error_domain")
 
 # WSBM curves of Fig. 7 (Q1 elements), read off the plot to about 10 %
 PAPER_WSBM = {
@@ -61,7 +66,8 @@ def background_parameters(parameters):
 
 def set_degree(parameters, degree):
     """B-splines of degree p on the background, and the p-th derivatives that
-    the GSBM facets need."""
+    the GSBM facets need (the shift, of any order, takes the derivatives of
+    the span's bases from Kratos itself)."""
     background_parameters(parameters)["polynomial_order"] = KM.Parameters(f"[{degree}, {degree}]")
     for modeler in parameters["modelers"].values():
         if modeler["modeler_name"].GetString() == "IgaModelerGsbm":
@@ -77,7 +83,8 @@ def set_materials(parameters, materials, degree):
 
 
 def l2_errors(parameters, size, log):
-    """L2 error and L2 norm of u of a case on size x size knot spans."""
+    """L2 error and L2 norm of u of a case on size x size knot spans, and the
+    relative L2 error in the domain, None without a skin."""
     parameters = parameters.Clone()
     parameters.RemoveValue("output_processes")
     background_parameters(parameters)["number_of_knot_spans"] = KM.Parameters(f"[{size}, {size}]")
@@ -85,7 +92,35 @@ def l2_errors(parameters, size, log):
     with logged_to(log):
         analysis.Run()
     data = analysis.GetFinalData()
-    return data["l2_error"], data["l2_norm"]
+    domain = data["l2_error_domain"] / data["l2_norm_domain"] if data["l2_error_domain"] is not None else None
+    return data["l2_error"], data["l2_norm"], domain
+
+
+def write_result(path, result):
+    """Merges a result, keyed by case and mesh, into a CSV file: it replaces
+    the row of the same case and mesh and keeps the others, and the rates
+    between successive meshes of every case are recomputed. Several runs can
+    write at once: each merges under a lock, and replaces the file whole, so
+    that a run killed while writing leaves the previous file."""
+    with open(path.with_suffix(".lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        rows = {}
+        if path.exists():
+            with open(path) as f:
+                rows = {(row["case"], int(row["N"])): row for row in csv.DictReader(f)}
+        rows[(result["case"], int(result["N"]))] = result
+        lines = [",".join(COLUMNS)]
+        for case in dict.fromkeys(case for case, _ in rows):  # in the order of the file
+            previous = None
+            for size in sorted(n for c, n in rows if c == case):
+                row = rows[(case, size)]
+                error = float(row["l2_error"])
+                row["rate"] = f"{np.log(previous[1] / error) / np.log(size / previous[0]):.3f}" if previous else "nan"
+                previous = (size, error)
+                lines.append(",".join(str(row.get(column) or "") for column in COLUMNS))
+        temporary = path.with_suffix(f".{os.getpid()}.tmp")
+        temporary.write_text("\n".join(lines) + "\n")
+        os.replace(temporary, path)
 
 
 def main():
@@ -110,10 +145,7 @@ def main():
             runs.setdefault(degree, []).append(parameters)
 
     for degree, cases in sorted(runs.items()):
-        log = Path(f"out/convergence_p{degree}.log")
-        log.write_text("")
-        rows = ["case,N,l2_error,relative_error,rate,paper_wsbm,time_s"]
-        cases_run = set()
+        log, path = Path(f"out/convergence_p{degree}.log"), Path(f"out/convergence_p{degree}.csv")
         for parameters in cases:
             parameters = parameters.Clone()
             set_degree(parameters, degree)
@@ -122,26 +154,19 @@ def main():
             case = parameters["problem_data"]["problem_name"].GetString()
             # The paper's WSBM curves are for Q1 elements, on its domains
             paper = PAPER_WSBM.get(case.split("_")[0], {}) if degree == 1 else {}
-            cases_run.add(case)
             print(f"\n{case}, p = {degree}")
-            print(f"{'N':>5} {'L2 error':>11} {'relative':>11} {'rate':>6} {'paper':>9} {'time [s]':>9}")
-            previous = None
+            print(f"{'N':>5} {'L2 error':>11} {'relative':>11} {'in domain':>11} {'paper':>9} {'time [s]':>9}")
             for size in arguments.sizes:
                 start = time.perf_counter()
-                error, norm = l2_errors(parameters, size, log)
+                error, norm, domain = l2_errors(parameters, size, log)
                 elapsed = time.perf_counter() - start
-                rate = np.log(previous / error) / np.log(size / previous_size) if previous else float("nan")
-                previous, previous_size = error, size
-                print(f"{size:>5} {error:>11.3e} {error / norm:>11.3e} {rate:>6.2f} "
+                domain = f"{domain:.6e}" if domain is not None else ""
+                print(f"{size:>5} {error:>11.3e} {error / norm:>11.3e} {domain[:5] + domain[-4:]:>11} "
                       f"{paper.get(size, ''):>9} {elapsed:>9.1f}", flush=True)
-                rows.append(f"{case},{size},{error:.6e},{error / norm:.6e},{rate:.3f},"
-                            f"{paper.get(size, '')},{elapsed:.2f}")
-
-        # Keep the results of the other cases
-        path = Path(f"out/convergence_p{degree}.csv")
-        if path.exists():
-            rows[1:1] = [row for row in path.read_text().splitlines()[1:] if row.split(",")[0] not in cases_run]
-        path.write_text("\n".join(rows) + "\n")
+                write_result(path, {"case": case, "N": size, "l2_error": f"{error:.6e}",
+                                    "relative_error": f"{error / norm:.6e}", "rate": "",
+                                    "paper_wsbm": paper.get(size, ""), "time_s": f"{elapsed:.2f}",
+                                    "relative_error_domain": domain})
 
 
 if __name__ == "__main__":

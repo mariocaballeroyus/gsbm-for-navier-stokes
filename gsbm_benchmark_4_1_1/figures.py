@@ -3,25 +3,31 @@ The figures of the benchmark, as those of the IGUANA study, from the outputs
 of MainKratos.py and convergence.py in out/:
 
 - out/gsbm_poisson_degrees_<domain>.png: u_h over the whole unit square, its
-  extension outside the domain included, at the degrees 1 to 4 on N = 40, on
+  extension outside the domain included, at the degrees 1 to 5 on N = 40, on
   one color scale, linear in [-1, 1] and logarithmic beyond, each titled with
   its degree;
 - out/gsbm_poisson_shifts_<domain>.png: on the left, the field at p = 5 on
   the 40 x 40 grid of the json; on the right, a column for every shift in
   SHIFTS with its convergence at the degrees 1 to 5, relative errors against
-  h from N = 40, with the slope h^(p+1) of every degree through its error on
-  N = 80;
-- out/gsbm_poisson_standard.png: the same convergence for the standard
-  Taylor shift of the SBM papers, without the shifted subscale, a panel per
-  domain;
-- out/gsbm_poisson_penalties.png: that shift at p = 3 for every combination
-  of the Nitsche and ghost penalty factors of penalties.py, against the shift
-  with the subscale, a panel per domain.
+  h from N = 40, a marker on every mesh, with the reference slope h^(p+1)
+  of every degree dashed over its finest factor of two in h, and the
+  convergence of UNENHANCED_SHIFT, the same method with the shift of order
+  p, faded beneath;
+- out/gsbm_poisson_subscale.png: the same convergence for the symmetric
+  Nitsche method with the shifted subscale, at the degrees 1 to 5, a panel
+  per domain;
+- out/gsbm_poisson_domain_error.png: the convergence of DOMAIN_ERROR_SHIFT
+  in the L2 norm inside the domain, a panel per domain, with its
+  alpha-weighted error of Eq. (48) faded beneath.
 
-The Taylor shift has its shifted subscale on (USE_RESIDUAL_TERMS), off in
-config/MaterialParameters_standard_p<p>.json, and the ghost penalty of Sticko
-and Kreiss, kappa_p = 0.5 / ((p!)^2 (2p + 1)), of
-config/MaterialParameters_p<p>.json:
+The main method is the skew-symmetric Nitsche method without penalty, with
+the enhanced shift, of order 2p, of config/MaterialParameters_skew_p<p>.json; the
+shift of order p is that of config/MaterialParameters_skew_unenhanced_p<p>.json; the
+shifted subscale, the cases <domain>_subscale of out/convergence_p<p>.csv,
+is the symmetric Nitsche method with the penalty chi (p + 1)^2, chi = 20,
+and the enhanced shift rewritten with the equation from the closest boundary
+point. All have the ghost penalty of Sticko and Kreiss, kappa_p = 0.5 /
+((p!)^2 (2p + 1)):
 
     python3 figures.py
 """
@@ -39,34 +45,40 @@ import numpy as np
 plt.rcParams.update({"font.size": 17, "axes.labelsize": 20, "axes.titlesize": 21, "xtick.labelsize": 17,
                      "ytick.labelsize": 17, "legend.fontsize": 16, "legend.title_fontsize": 16})
 
-DOMAINS = ("circle", "flower", "parallelogram", "heart")
-DEGREES = (1, 2, 3, 4)
-COLOURS = {1: "C0", 2: "C1", 3: "C2", 4: "C3", 5: "C4"}
+DOMAINS = ("circle", "flower", "parallelogram")
+DEGREES = (1, 2, 3, 4, 5)
+# One hue per degree, from the colour-blind-safe palette of Okabe and Ito
+# (its black left to the slopes and the paper's points), and the near black
+# of the slopes, as in the IGUANA study's figures
+COLOURS = {1: "#0072B2", 2: "#D55E00", 3: "#009E73", 4: "#CC79A7", 5: "#E69F00"}
+INK = "#1f1f1e"
 
-# The degrees of the convergence plots
+# The degrees of the convergence plots, and of the shifted subscale's
 CONVERGENCE_DEGREES = (1, 2, 3, 4, 5)
+SUBSCALE_DEGREES = (1, 2, 3, 4, 5)
 
 # The shift of the fields, the mesh of the fields at all degrees, and the
 # degree and mesh of the field beside the convergence
-FIELD_SHIFT = "taylor"
+FIELD_SHIFT = "skew"
 DEGREES_CELLS = 40
 FIELD = (5, 40)
 
-# The convergence plots, a column per shift: from N = 40, with the slopes
-# through N = 80
+# The convergence plots, a column per shift: from N = 40, on h from 1/450,
+# which leaves room for the slopes' triangles left of the finest mesh, and
+# the same method with the shift of order p faded beneath
 MIN_CELLS = 40
-ANCHOR_CELLS = 80
-SHIFTS = (("taylor", "Taylor shift, shifted subscale on"),)
+H_LIMITS = (1. / 450., 10.**-1.5)
+SHIFTS = (("skew", "Skew-symmetric Nitsche, enhanced shift"),)
+UNENHANCED_SHIFT = "skew_unenhanced"
+# The height, in axes coordinates, kept below the legend of the degrees for the
+# legend of the two shifts
+SHIFTS_LEGEND_HEIGHT = .1
 
-# The standard Taylor shift of the SBM papers, without the shifted subscale,
-# in its own figure
-STANDARD_SHIFT = "standard"
+# The symmetric Nitsche method with the shifted subscale, in its own figure
+SUBSCALE_SHIFT = "subscale"
 
-# The degree of the penalty study of the standard shift, out/penalties_p3.csv,
-# and the degrees of the shift with the subscale beside it, with their colour
-# and marker
-PENALTY_DEGREE = 3
-PENALTY_REFERENCES = ((3, "C3", "o"), (2, "C1", "s"))
+# The shift whose error inside the domain has its own figure
+DOMAIN_ERROR_SHIFT = "skew"
 
 # The errors of the GSBM paper at p = 1, from its code (absolute, Eq. 48), as
 # points with a marker per weighting
@@ -97,16 +109,17 @@ def read_skin(path):
     return np.vstack([points, points[:1]])
 
 
-def read_errors():
-    """Relative errors in out/convergence_p<p>.csv, keyed by shift, domain,
-    degree and mesh."""
+def read_errors(column="relative_error"):
+    """Relative errors in out/convergence_p<p>.csv, alpha-weighted or in the
+    column given, keyed by shift, domain, degree and mesh, where they are."""
     errors = {}
     for path in Path("out").glob("convergence_p*.csv"):
         degree = int(path.stem.removeprefix("convergence_p"))
         with open(path) as f:
             for row in csv.DictReader(f):
                 domain, shift = row["case"].split("_", 1)
-                errors[(shift, domain, degree, int(row["N"]))] = float(row["relative_error"])
+                if row.get(column):
+                    errors[(shift, domain, degree, int(row["N"]))] = float(row[column])
     return errors
 
 
@@ -180,7 +193,7 @@ def plot_degrees(domain):
     fields = [read_fields(Path(f"out/{domain}_{FIELD_SHIFT}_p{degree}_N{DEGREES_CELLS}.vtk"))
               for degree in DEGREES]
     bound = max(np.abs(field["u_h"]).max() for field in fields)
-    figure, axes = plt.subplots(1, len(DEGREES), figsize=(24, 6.8), layout="constrained")
+    figure, axes = plt.subplots(1, len(DEGREES), figsize=(6 * len(DEGREES), 6.8), layout="constrained")
 
     for axis, field, degree in zip(axes, fields, DEGREES):
         image = draw_field(axis, field, skin, DEGREES_CELLS, bound, f"$p = {degree}$")
@@ -190,55 +203,59 @@ def plot_degrees(domain):
     plt.close(figure)
 
 
-def plot_convergence(axis, errors, shift, domain, title):
-    for degree in CONVERGENCE_DEGREES:
+def plot_convergence(axis, errors, shift, domain, title, degrees=CONVERGENCE_DEGREES, faded=False):
+    """The errors of a shift at every degree, a marker on every mesh; faded,
+    thinner and without labels, beneath another shift."""
+    style = dict(alpha=.5, markersize=3.5, linewidth=1.4) if faded else dict(markersize=4.5, linewidth=2.2)
+    for degree in degrees:
         pairs = sorted((cells, error) for (s, d, p, cells), error in errors.items()
                        if (s, d, p) == (shift, domain, degree) and cells >= MIN_CELLS)
         if len(pairs) < 2:
             continue
         cells, values = map(np.array, zip(*pairs))
-        axis.loglog(1. / cells, values, color=COLOURS[degree], marker="o", markersize=7, linewidth=2.2,
-                    label=f"$p = {degree}$")
+        axis.loglog(1. / cells, values, color=COLOURS[degree], marker="o",
+                    label="_faded" if faded else f"$p = {degree}$", **style)
     if title:
         axis.set_title(title)
     axis.grid(True, which="both", alpha=.3)
-    axis.legend(loc="lower right")
+    if not faded:
+        axis.legend(loc="lower right")
 
 
-def plot_slopes(axis, errors, shift, domain, limits):
-    """The optimal slope of each degree through its error on N = 80, across
-    the axis, with a small triangle at the finest mesh of the degree, moved
-    along the slope to coarser meshes while it overlaps the triangle of a
-    lower degree; returns the lowest value the triangles reach."""
+def plot_slopes(axis, errors, shift, domain, limits, degrees=CONVERGENCE_DEGREES):
+    """The optimal slope p + 1 of each degree as in the IGUANA study's
+    figures: dashed over its finest factor of two in h, below every error
+    there, from a small triangle just left of the finest mesh, h in [1/400,
+    1.2/400], labelled p + 1 on its left. A triangle that would overlap one
+    already drawn moves down with its line. Returns the lowest value the
+    triangles reach."""
     lowest = limits[1][0]
     placed = []
-    for degree in CONVERGENCE_DEGREES:
-        key = (shift, domain, degree, ANCHOR_CELLS)
-        if key not in errors:
+    for degree in degrees:
+        values = {cells: error for (s, d, p, cells), error in errors.items() if (s, d, p) == (shift, domain, degree)}
+        if not values:
             continue
+        slope, finest = degree + 1, max(values)
 
-        def reference(h, degree=degree, anchor=errors[key]):
-            return .6 * anchor * (h * ANCHOR_CELLS)**(degree + 1)
-
-        h = np.array(limits[0])
-        axis.plot(h, reference(h), color="black", linewidth=1.3)
-        finest = max(cells for (s, d, p, cells) in errors if (s, d, p) == (shift, domain, degree))
-        low, high = 1. / finest, 1.25 / finest
-
-        # With some room for the labels, below and to the right
-        def overlaps(low, high):
-            return any(low < right * 1.1 and left < high * 1.1
-                       and reference(low) / 1.5 < top and bottom / 1.5 < reference(high)
-                       for left, right, bottom, top in placed)
-
-        while overlaps(low, high):
-            low, high = 1.25 * low, 1.25 * high
-        bottom, top = reference(low), reference(high)
-        placed.append((low, high, bottom, top))
+        # The line through the fine end lies below every error it spans
+        anchor = min(values[n] * (n / finest)**slope for n in values if 2 * n >= finest) / 1.6
+        left, right = 1. / 400., 1.2 / 400.
+        while True:
+            bottom = anchor * (left * finest)**slope / 1.18
+            top = bottom * 1.2**slope
+            extent = (np.log10(bottom), np.log10(top))
+            clashes = [b for b in placed if extent[0] < b[1] + .1 and b[0] < extent[1] + .1]
+            if not clashes:
+                break
+            anchor *= 10.**(min(b[0] for b in clashes) - .14 - extent[1])
+        placed.append(extent)
         lowest = min(lowest, bottom / 2.)
-        axis.plot([low, high, high, low], [bottom, bottom, top, bottom], color="black", linewidth=1.3)
-        axis.text(np.sqrt(low * high), bottom / 1.1, "1", fontsize=15, ha="center", va="top")
-        axis.text(high * 1.03, np.sqrt(bottom * top), f"{degree + 1}", fontsize=15, ha="left", va="center")
+
+        span = np.array([left, 2. / finest])
+        axis.loglog(span, anchor * (span * finest)**slope, "--", color=INK, linewidth=1.3)
+        axis.plot([left, right, right, left], [bottom, bottom, top, bottom], color=INK, linewidth=1.2)
+        axis.annotate(f"{slope}", (left, np.sqrt(bottom * top)), textcoords="offset points", xytext=(-4, 0),
+                      ha="right", va="center", fontsize=15, color=INK)
     return lowest
 
 
@@ -262,19 +279,29 @@ def plot_shifts(domain, errors):
                       loc="upper left", handlelength=0, handletextpad=0)
     field_colorbar(figure, image, field_axis, bound)
 
-    # Column titles only to tell several shifts apart
+    # Column titles only to tell several shifts apart; the degrees, and below
+    # them the two shifts by their styles where the faded one has errors
     reference = read_reference()
+    unenhanced = any((s, d) == (UNENHANCED_SHIFT, domain) for s, d, _, _ in errors)
+    styles = [matplotlib.lines.Line2D([], [], color="black", marker="o", markersize=3.5, linewidth=1.4, alpha=.5),
+              matplotlib.lines.Line2D([], [], color="black", marker="o", markersize=4.5, linewidth=2.2)]
     for axis, (shift, title) in zip(axes, SHIFTS):
+        plot_convergence(axis, errors, UNENHANCED_SHIFT, domain, None, faded=True)
         plot_convergence(axis, errors, shift, domain, title if len(SHIFTS) > 1 else None)
+        if unenhanced:
+            axis.legend(loc="lower right", bbox_to_anchor=(1., SHIFTS_LEGEND_HEIGHT))
         plot_reference(axis, reference, domain)
+        if unenhanced:
+            axis.add_artist(matplotlib.legend.Legend(axis, styles, ["standard shift ($p$)", "enhanced shift ($2p$)"],
+                                                     loc="lower right"))
         axis.set_xlabel("$h$")
     first_axis.set_ylabel(r"$\Vert u - u_h\Vert \,/\, \Vert u\Vert$")
     for axis in axes[1:]:
         axis.tick_params(which="both", labelleft=False)
 
-    # The slopes once the shared limits of all panels are known, h from just
-    # below 1/320 to the half decade above 1/40
-    first_axis.set_xlim(10.**-2.55, 10.**-1.5)
+    # The slopes once the shared limits of all panels are known, h from 1/450
+    # to the half decade above 1/40
+    first_axis.set_xlim(*H_LIMITS)
     limits = first_axis.get_xlim(), first_axis.get_ylim()
     lowest = min(plot_slopes(axis, errors, shift, domain, limits) for axis, (shift, _) in zip(axes, SHIFTS))
     first_axis.set_xlim(limits[0])
@@ -289,15 +316,15 @@ def plot_shifts(domain, errors):
     plt.close(figure)
 
 
-def plot_standard_shift(errors):
-    """The convergence of the standard Taylor shift, without the shifted
-    subscale, on every domain, side by side on one y-axis, each titled with
+def plot_subscale(errors):
+    """The convergence of the symmetric Nitsche method with the shifted
+    subscale on every domain, side by side on one y-axis, each titled with
     its domain."""
     figure, axes = plt.subplots(1, len(DOMAINS), figsize=(6.5 * len(DOMAINS), 8.5), sharex=True, sharey=True,
                                 layout="constrained")
     reference = read_reference()
     for axis, domain in zip(axes, DOMAINS):
-        plot_convergence(axis, errors, STANDARD_SHIFT, domain, domain.capitalize())
+        plot_convergence(axis, errors, SUBSCALE_SHIFT, domain, domain.capitalize(), SUBSCALE_DEGREES)
         plot_reference(axis, reference, domain)
         axis.set_xlabel("$h$")
     axes[0].set_ylabel(r"$\Vert u - u_h\Vert \,/\, \Vert u\Vert$")
@@ -305,90 +332,54 @@ def plot_standard_shift(errors):
         axis.tick_params(which="both", labelleft=False)
 
     # As in plot_shifts: the slopes once the shared limits are known
-    axes[0].set_xlim(10.**-2.55, 10.**-1.5)
+    axes[0].set_xlim(*H_LIMITS)
     limits = axes[0].get_xlim(), axes[0].get_ylim()
-    lowest = min(plot_slopes(axis, errors, STANDARD_SHIFT, domain, limits) for axis, domain in zip(axes, DOMAINS))
+    lowest = min(plot_slopes(axis, errors, SUBSCALE_SHIFT, domain, limits, SUBSCALE_DEGREES)
+                 for axis, domain in zip(axes, DOMAINS))
     axes[0].set_xlim(limits[0])
     axes[0].set_ylim(lowest, limits[1][1])
     exponents = (-2.5, -2., -1.5)
     axes[0].set_xticks([10.**k for k in exponents], [f"$10^{{{k:g}}}$" for k in exponents])
     axes[0].xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
 
-    figure.savefig("out/gsbm_poisson_standard.png", dpi=110, bbox_inches="tight", pad_inches=.1)
+    figure.savefig("out/gsbm_poisson_subscale.png", dpi=110, bbox_inches="tight", pad_inches=.1)
     plt.close(figure)
 
 
-def read_penalties():
-    """Relative errors in out/penalties_p3.csv, keyed by domain, the factors
-    chi and kappa, and mesh."""
-    errors = {}
-    path = Path("out/penalties_p3.csv")
-    if path.exists():
-        with open(path) as f:
-            for row in csv.DictReader(f):
-                key = (row["case"].split("_", 1)[0], float(row["chi"]), float(row["kappa"]), int(row["N"]))
-                errors[key] = float(row["relative_error"])
-    return errors
-
-
-def plot_penalties(errors, penalties):
-    """The convergence of the standard Taylor shift at p = 3 for every
-    combination of the penalty factors, a colour per chi and a line style per
-    kappa, against the shift with the subscale at the factors of the
-    materials, at p = 3 in red and p = 2 in orange, a panel per domain, with
-    the slope h^4 through the subscale at p = 3 on N = 80."""
-    chis = sorted({chi for _, chi, _, _ in penalties})
-    kappas = sorted({kappa for _, _, kappa, _ in penalties})
-    colours = dict(zip(chis, plt.cm.viridis(np.linspace(0., .85, len(chis)))))
-    styles = dict(zip(kappas, (":", "-.", "--", "-")))
-    subscale = SHIFTS[0][0]
+def plot_domain_error(errors, domain_errors):
+    """The convergence of DOMAIN_ERROR_SHIFT inside the domain on every
+    domain, side by side on one y-axis, with its alpha-weighted error faded
+    beneath and the slopes through the error inside the domain."""
     figure, axes = plt.subplots(1, len(DOMAINS), figsize=(6.5 * len(DOMAINS), 8.5), sharex=True, sharey=True,
                                 layout="constrained")
+    styles = [matplotlib.lines.Line2D([], [], color="black", marker="o", markersize=4.5, linewidth=2.2),
+              matplotlib.lines.Line2D([], [], color="black", marker="o", markersize=3.5, linewidth=1.4, alpha=.5)]
     for axis, domain in zip(axes, DOMAINS):
-        for chi in chis:
-            for kappa in kappas:
-                pairs = sorted((cells, error) for (d, c, k, cells), error in penalties.items()
-                               if (d, c, k) == (domain, chi, kappa))
-                if len(pairs) > 1:
-                    cells, values = map(np.array, zip(*pairs))
-                    axis.loglog(1. / cells, values, color=colours[chi], linestyle=styles[kappa], linewidth=1.8,
-                                marker="o", markersize=4)
-        for degree, colour, marker in PENALTY_REFERENCES:
-            pairs = sorted((cells, error) for (s, d, p, cells), error in errors.items()
-                           if (s, d, p) == (subscale, domain, degree) and cells >= MIN_CELLS)
-            cells, values = map(np.array, zip(*pairs))
-            axis.loglog(1. / cells, values, color=colour, linewidth=3.6, marker=marker, markersize=9, zorder=5)
-        anchor = errors[(subscale, domain, PENALTY_DEGREE, ANCHOR_CELLS)]
-        h = np.array([10.**-2.55, 10.**-1.5])
-        axis.loglog(h, .3 * anchor * (h * ANCHOR_CELLS)**(PENALTY_DEGREE + 1), color="black", linewidth=1.,
-                    linestyle=(0, (1, 3)))
-        axis.set_title(domain.capitalize())
+        plot_convergence(axis, errors, DOMAIN_ERROR_SHIFT, domain, None, faded=True)
+        plot_convergence(axis, domain_errors, DOMAIN_ERROR_SHIFT, domain, domain.capitalize())
+        axis.get_legend().remove()
         axis.set_xlabel("$h$")
-        axis.grid(True, which="both", alpha=.3)
+    # One legend below the panels, as the curves fill every corner of them
+    handles, labels = max((axis.get_legend_handles_labels() for axis in axes), key=lambda pair: len(pair[1]))
+    legend = figure.legend(handles + styles, labels + [r"in $\Omega$", r"$\alpha_h$-weighted, Eq. (48)"],
+                           loc="upper center", bbox_to_anchor=(.5, 0.), ncols=len(labels) + len(styles))
     axes[0].set_ylabel(r"$\Vert u - u_h\Vert \,/\, \Vert u\Vert$")
     for axis in axes[1:]:
         axis.tick_params(which="both", labelleft=False)
-    axes[0].set_xlim(10.**-2.55, 10.**-1.5)
+
+    # As in plot_shifts: the slopes once the shared limits are known
+    axes[0].set_xlim(*H_LIMITS)
+    limits = axes[0].get_xlim(), axes[0].get_ylim()
+    lowest = min(plot_slopes(axis, domain_errors, DOMAIN_ERROR_SHIFT, domain, limits)
+                 for axis, domain in zip(axes, DOMAINS))
+    axes[0].set_xlim(limits[0])
+    axes[0].set_ylim(lowest, limits[1][1])
     exponents = (-2.5, -2., -1.5)
     axes[0].set_xticks([10.**k for k in exponents], [f"$10^{{{k:g}}}$" for k in exponents])
     axes[0].xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
 
-    # Below the panels, a row of the factors and one of the references
-    line = matplotlib.lines.Line2D
-    factors = ([line([], [], color=colours[chi], linewidth=2.4) for chi in chis]
-               + [line([], [], color="0.3", linestyle=styles[kappa], linewidth=1.8) for kappa in kappas])
-    factor_labels = [f"$\\chi = {chi:g}$" for chi in chis] + [f"$\\kappa = {kappa:g}$" for kappa in kappas]
-    references = ([line([], [], color=colour, linewidth=3.6, marker=marker, markersize=9)
-                   for _, colour, marker in PENALTY_REFERENCES]
-                  + [line([], [], color="black", linewidth=1., linestyle=(0, (1, 3)))])
-    reference_labels = [f"$p = {degree}$" for degree, _, _ in PENALTY_REFERENCES] + [f"$h^{PENALTY_DEGREE + 1}$"]
-    legends = [figure.legend(factors, factor_labels, loc="upper center", bbox_to_anchor=(.5, 0.),
-                             ncols=len(factors), title="without the subscale, $p = 3$"),
-               figure.legend(references, reference_labels, loc="upper center", bbox_to_anchor=(.5, -.11),
-                             ncols=len(references), handlelength=4.,
-                             title="with the subscale, $\\chi = 20$, $\\kappa = 0.5$")]
-    figure.savefig("out/gsbm_poisson_penalties.png", dpi=110, bbox_inches="tight", pad_inches=.1,
-                   bbox_extra_artists=legends)
+    figure.savefig("out/gsbm_poisson_domain_error.png", dpi=110, bbox_inches="tight", pad_inches=.1,
+                   bbox_extra_artists=[legend])
     plt.close(figure)
 
 
@@ -398,7 +389,7 @@ if __name__ == "__main__":
     for domain in DOMAINS:
         plot_degrees(domain)
         plot_shifts(domain, errors)
-    plot_standard_shift(errors)
-    penalties = read_penalties()
-    if penalties:
-        plot_penalties(errors, penalties)
+    plot_subscale(errors)
+    domain_errors = read_errors("relative_error_domain")
+    if any(shift == DOMAIN_ERROR_SHIFT for shift, _, _, _ in domain_errors):
+        plot_domain_error(errors, domain_errors)

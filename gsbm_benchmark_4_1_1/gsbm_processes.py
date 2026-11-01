@@ -3,7 +3,9 @@ Processes of the GSBM Poisson benchmark, chosen by "process_name":
 
 - BoundaryDataProcess: g at the closest skin points, and f and its
   derivatives at the cut facets, for the shifted subscale of the Taylor shift;
-- L2ErrorProcess: the alpha-weighted L2 error of Eq. (48);
+- ActiveSpansProcess: the problem on the knot spans with alpha > 0 alone;
+- L2ErrorProcess: the alpha-weighted L2 error of Eq. (48), and the L2 error
+  in the domain;
 - VtkFieldsOutputProcess: the fields on a uniform grid of the background, for
   ParaView.
 
@@ -26,6 +28,7 @@ def Factory(settings, model):
         raise Exception("Expected input shall be a Parameters object, encapsulating a json string")
     processes = {
         "BoundaryDataProcess": BoundaryDataProcess,
+        "ActiveSpansProcess": ActiveSpansProcess,
         "L2ErrorProcess": L2ErrorProcess,
         "VtkFieldsOutputProcess": VtkFieldsOutputProcess,
     }
@@ -70,15 +73,76 @@ def background_values(background, variable, grids):
     return (bases[1] @ (bases[0] @ coefficients).T).T
 
 
+def background_point_values(background, variable, points, chunk=200000):
+    """A nodal variable of the background patch at scattered points, rows
+    (x, y), from the p + 1 functions of each direction that are nonzero there."""
+    knots, degrees = [], (background.PolynomialDegreeU(), background.PolynomialDegreeV())
+    for direction_knots in (background.KnotsU(), background.KnotsV()):
+        direction_knots = np.array(direction_knots)
+        knots.append(np.concatenate([[direction_knots[0]], direction_knots, [direction_knots[-1]]]))
+    coefficients = np.array([node.GetSolutionStepValue(variable) for node in background])
+    coefficients = coefficients.reshape(background.NumberOfControlPointsV(), -1).T
+    values = np.empty(len(points))
+    for start in range(0, len(points), chunk):
+        local = []
+        for direction in range(2):
+            matrix = BSpline.design_matrix(points[start:start + chunk, direction], knots[direction],
+                                           degrees[direction])
+            local.append((matrix.indices.reshape(-1, degrees[direction] + 1)[:, 0],
+                          matrix.data.reshape(-1, degrees[direction] + 1)))
+        (first_u, basis_u), (first_v, basis_v) = local
+        block = coefficients[first_u[:, None, None] + np.arange(degrees[0] + 1)[None, :, None],
+                             first_v[:, None, None] + np.arange(degrees[1] + 1)[None, None, :]]
+        values[start:start + chunk] = np.einsum("ka,kb,kab->k", basis_u, basis_v, block)
+    return values
+
+
+def domain_quadrature(polygon, cells, n, depth):
+    """Points and weights of a quadrature over the part inside a polygon of
+    square cells, rows (x0, y0, size), all cut by it: every cell the polygon
+    cuts is split into four, depth times, with n x n Gauss points in every
+    leaf and, in the leaves still cut, only the points inside. A cell is cut
+    when its corners and center are not all on one side."""
+    gauss, gauss_weights = np.polynomial.legendre.leggauss(n)
+    offsets = np.stack(np.meshgrid((gauss + 1.) / 2., (gauss + 1.) / 2., indexing="ij"), -1).reshape(-1, 2)
+    unit_weights = np.outer(gauss_weights, gauss_weights).ravel() / 4.
+    probes = np.array([[0., 0.], [1., 0.], [0., 1.], [1., 1.], [.5, .5]])
+    children = np.array([[0., 0.], [.5, 0.], [0., .5], [.5, .5]])
+    points, weights = [], []
+
+    def leaves(cells, keep_inside_only):
+        cell_points = (cells[:, None, :2] + cells[:, None, 2:] * offsets[None]).reshape(-1, 2)
+        cell_weights = (cells[:, 2:]**2 * unit_weights[None]).ravel()
+        if keep_inside_only:
+            inside = polygon.contains_points(cell_points)
+            cell_points, cell_weights = cell_points[inside], cell_weights[inside]
+        points.append(cell_points)
+        weights.append(cell_weights)
+
+    for level in range(depth + 1):
+        if level > 0:
+            inside = polygon.contains_points(
+                (cells[:, None, :2] + cells[:, None, 2:] * probes[None]).reshape(-1, 2)).reshape(-1, len(probes))
+            leaves(cells[inside.all(axis=1)], False)
+            cells = cells[inside.any(axis=1) & ~inside.all(axis=1)]
+        if level == depth:
+            leaves(cells, True)
+        else:
+            # The four children of every cell, of half its size
+            corners = (cells[:, None, :2] + cells[:, None, 2:] * children[None]).reshape(-1, 2)
+            cells = np.column_stack([corners, np.repeat(cells[:, 2] / 2., len(children))])
+    return np.concatenate(points), np.concatenate(weights)
+
+
 class BoundaryDataProcess(KM.Process):
     """Assigns what the GSBM Dirichlet conditions read: g, to the unknown, at
-    the closest skin points, and VOLUME_SOURCE_DERIVATIVES, f and its
-    Cartesian derivatives of orders 0 to p - 2, every order n as
-    d_x^(n-k) d_y^k, k = 0 to n, at the points of the cut facets of
-    facets_model_part_name, those with an IDENTIFIER, for the shifted
-    subscale of the Taylor shift. g and f are expressions of the Kratos function
-    parser, f differentiated with SymPy. The nodes and cut facets are found
-    when the step starts, as VolumeFractionGsbmProcess creates them."""
+    the closest skin points; and, with a Kratos that has the shifted subscale
+    (VOLUME_SOURCE_DERIVATIVES), f and its Cartesian derivatives of orders 0
+    to p - 2, every order n as d_x^(n-k) d_y^k, k = 0 to n, at the points of
+    the cut facets of facets_model_part_name, those with an IDENTIFIER. g and
+    f are expressions of the Kratos function parser, f differentiated with
+    SymPy. The nodes and cut facets are found when the step starts, as
+    VolumeFractionGsbmProcess creates them."""
 
     def __init__(self, model, settings):
         super().__init__()
@@ -124,6 +188,9 @@ class BoundaryDataProcess(KM.Process):
         for node, value in zip(nodes, derivatives(self.g, [0], nodes)[:, 0]):
             node.SetValue(self.variable, value)
 
+        if not hasattr(IGA, "VOLUME_SOURCE_DERIVATIVES"):
+            return  # no shifted subscale to feed
+
         # The cut facets, at their points (the centers of their - sides)
         facets = [facet for facet in self.model[self.settings["facets_model_part_name"].GetString()].Conditions
                   if facet.Has(KM.IDENTIFIER)]
@@ -132,12 +199,69 @@ class BoundaryDataProcess(KM.Process):
             facet.SetValue(IGA.VOLUME_SOURCE_DERIVATIVES, KM.Vector(f_row.tolist()))
 
 
+class ActiveSpansProcess(KM.Process):
+    """Keeps the problem on the knot spans with alpha > 0, as CutFEM does:
+    fixes to zero the unknown of every basis function whose support lies only
+    on empty spans (alpha = 0), which removes it, and deactivates the ghost
+    penalty conditions of ghost_penalty_model_part_name unless both their
+    spans have alpha > 0. Next to an empty span the ghost penalty would pull
+    towards a polynomial with some of its functions removed, which is not
+    consistent. Without the process, the whole background is extended by the ghost
+    penalty alone, which at p >= 4 leaves the system so ill-conditioned that
+    round-off sets the error. Runs when the step starts, after
+    VolumeFractionGsbmProcess has assigned the fractions."""
+
+    def __init__(self, model, settings):
+        super().__init__()
+        settings.ValidateAndAssignDefaults(KM.Parameters("""{
+            "model_part_name": "", "geometry_name": "", "elements_model_part_name": "",
+            "ghost_penalty_model_part_name": "", "variable_name": "" }"""))
+        self.model = model
+        self.settings = settings
+        self.variable = KM.KratosGlobals.GetVariable(settings["variable_name"].GetString())
+
+    def ExecuteInitializeSolutionStep(self):
+        model_part = self.model[self.settings["model_part_name"].GetString()]
+        background = model_part.GetGeometry(self.settings["geometry_name"].GetString())
+        spans = [np.array(background.SpansLocalSpace(direction)) for direction in range(2)]
+        alpha = knot_span_volume_fractions(
+            self.model[self.settings["elements_model_part_name"].GetString()].Elements, spans)
+
+        # The function (a, b) lives on the spans a - p to a and b - q to b
+        p, q = background.PolynomialDegreeU(), background.PolynomialDegreeV()
+        filled = alpha > 0.
+        active = np.zeros((filled.shape[0] + p, filled.shape[1] + q), dtype=bool)
+        for i in range(p + 1):
+            for j in range(q + 1):
+                active[i:i + filled.shape[0], j:j + filled.shape[1]] |= filled
+        # Control points ordered u fastest
+        for node, keep in zip(background, active.T.ravel()):
+            if not keep:
+                node.Fix(self.variable)
+                node.SetSolutionStepValue(self.variable, 0.)
+
+        ghost = self.model[self.settings["ghost_penalty_model_part_name"].GetString()].Conditions
+        dropped = 0
+        for condition in ghost:
+            centers = [condition.GetGeometry().GetGeometryPart(side).Center() for side in (0, 1)]
+            sides = alpha[span_indices(spans[0], np.array([c.X for c in centers])),
+                          span_indices(spans[1], np.array([c.Y for c in centers]))]
+            if not sides.all():
+                condition.Set(KM.ACTIVE, False)
+                dropped += 1
+        KM.Logger.PrintInfo("ActiveSpansProcess", f"{np.count_nonzero(~active)} of {active.size} functions "
+                            f"and {dropped} of {len(ghost)} ghost facets dropped")
+
+
 class L2ErrorProcess(KM.Process):
     """Alpha-weighted L2 norm of the error, Eq. (48): the sum over the knot
     spans of alpha times the integral of (u - u_h)^2, with
     number_of_integration_points_per_span Gauss points per direction (0 for
     p + 1, the Gauss points of the elements); and the same norm of u, for the
-    relative error."""
+    relative error. With a skin_model_part_name, also the L2 norms of both in
+    the domain alone, inside the skin polygon: the spans with alpha = 1 with
+    those Gauss points, and the cut ones with domain_quadrature to
+    domain_quadrature_depth levels."""
 
     def __init__(self, model, settings):
         super().__init__()
@@ -147,7 +271,9 @@ class L2ErrorProcess(KM.Process):
             "elements_model_part_name": "",
             "variable_name": "",
             "exact_solution": "",
-            "number_of_integration_points_per_span": 0
+            "number_of_integration_points_per_span": 0,
+            "skin_model_part_name": "",
+            "domain_quadrature_depth": 5
         }"""))
         self.model = model
         self.settings = settings
@@ -155,6 +281,8 @@ class L2ErrorProcess(KM.Process):
         self.exact = parse_function(settings["exact_solution"].GetString())
         self.l2_error = None
         self.l2_norm = None
+        self.l2_error_domain = None
+        self.l2_norm_domain = None
 
     def ExecuteFinalizeSolutionStep(self):
         model_part = self.model[self.settings["model_part_name"].GetString()]
@@ -177,16 +305,36 @@ class L2ErrorProcess(KM.Process):
         u_h = background_values(background, self.variable, grids)
         X, Y = np.meshgrid(*grids, indexing="ij")
         u = np.vectorize(lambda x, y: self.exact(x, y, time))(X, Y)
-        def norm(values):
-            """Alpha-weighted L2 norm, from the integral over every knot span."""
-            squared = (values**2 * np.outer(*weights)).reshape(
+        def span_integrals(values):
+            """The integral of values^2 over every knot span."""
+            return (values**2 * np.outer(*weights)).reshape(
                 alpha.shape[0], points_per_span[0], alpha.shape[1], points_per_span[1]).sum(axis=(1, 3))
-            return np.sqrt(np.sum(alpha * squared))
 
-        self.l2_error = norm(u - u_h)
-        self.l2_norm = norm(u)
+        error_squared, u_squared = span_integrals(u - u_h), span_integrals(u)
+        self.l2_error = np.sqrt(np.sum(alpha * error_squared))
+        self.l2_norm = np.sqrt(np.sum(alpha * u_squared))
         KM.Logger.PrintInfo("L2ErrorProcess", f"L2 error: {self.l2_error:.6e}, "
                             f"relative: {self.l2_error / self.l2_norm:.6e}")
+
+        skin_name = self.settings["skin_model_part_name"].GetString()
+        if not skin_name:
+            return
+        skin = np.array([[condition.GetGeometry()[0].X, condition.GetGeometry()[0].Y]
+                         for condition in self.model[skin_name].Conditions])
+        cut = np.argwhere((alpha > 0.) & (alpha < 1.))
+        sizes = np.diff(spans[0])[cut[:, 0]]
+        if not np.allclose(sizes, np.diff(spans[1])[cut[:, 1]]):
+            raise ValueError("L2ErrorProcess: the error in the domain needs square knot spans")
+        points, point_weights = domain_quadrature(
+            Polygon(skin), np.column_stack([spans[0][cut[:, 0]], spans[1][cut[:, 1]], sizes]),
+            max(points_per_span), self.settings["domain_quadrature_depth"].GetInt())
+        cut_u_h = background_point_values(background, self.variable, points)
+        cut_u = np.array([self.exact(x, y, time) for x, y in points])
+        inside = alpha == 1.
+        self.l2_error_domain = np.sqrt(np.sum(error_squared[inside]) + np.sum(point_weights * (cut_u - cut_u_h)**2))
+        self.l2_norm_domain = np.sqrt(np.sum(u_squared[inside]) + np.sum(point_weights * cut_u**2))
+        KM.Logger.PrintInfo("L2ErrorProcess", f"L2 error in the domain: {self.l2_error_domain:.6e}, "
+                            f"relative: {self.l2_error_domain / self.l2_norm_domain:.6e}")
 
 
 class VtkFieldsOutputProcess(KM.OutputProcess):

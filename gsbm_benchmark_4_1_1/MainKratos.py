@@ -6,7 +6,7 @@ all of them by default; with --degrees, at each of those degrees, and with
 degree, {p} standing for it:
 
     python3 MainKratos.py [config/ProjectParameters_<case>.json ...] [--degrees 1 2 3 4]
-        [--cells 80] [--materials "config/MaterialParameters_p{p}.json"]
+        [--cells 80] [--materials "config/MaterialParameters_skew_p{p}.json"]
 """
 
 import argparse

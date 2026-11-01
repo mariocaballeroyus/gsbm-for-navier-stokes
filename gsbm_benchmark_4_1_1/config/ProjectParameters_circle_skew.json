@@ -1,6 +1,6 @@
 {
     "problem_data": {
-        "problem_name": "circle_taylor",
+        "problem_name": "circle_skew",
         "parallel_type": "OpenMP",
         "echo_level": 0,
         "start_time": 0.0,
@@ -14,7 +14,7 @@
             "input_type": "use_input_model_part"
         },
         "material_import_settings": {
-            "materials_filename": "config/MaterialParameters.json"
+            "materials_filename": "config/MaterialParameters_skew.json"
         },
         "convection_diffusion_variables": {
             "unknown_variable": "TEMPERATURE",
@@ -120,7 +120,8 @@
                 "elements_model_part_name": "IgaModelPart.Domain",
                 "variable_name": "TEMPERATURE",
                 "exact_solution": "sin(15*pi*x)*sin(15*pi*y)",
-                "number_of_integration_points_per_span": 0
+                "number_of_integration_points_per_span": 0,
+                "skin_model_part_name": "Skin.tessellation"
             }
         }]
     },
@@ -136,7 +137,7 @@
                 "variable_name": "TEMPERATURE",
                 "exact_solution": "sin(15*pi*x)*sin(15*pi*y)",
                 "number_of_samples": 401,
-                "output_file_name": "out/circle_taylor",
+                "output_file_name": "out/circle_skew",
                 "skin_output_file_name": "out/skin_circle_nurbs"
             }
         }]

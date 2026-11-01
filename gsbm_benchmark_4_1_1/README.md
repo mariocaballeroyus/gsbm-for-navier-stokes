@@ -7,25 +7,23 @@ $$\begin{aligned}
 u &= g_D \qquad &\text{on } \Gamma,
 \end{aligned}$$
 
-with the manufactured solution $u = \sin(15\pi x)\sin(15\pi y)$ (Eq. 47), on four domains in the background $[0, 1]^2$, the three of [1] and a heart of our own, each given as NURBS curves:
+with the manufactured solution $u = \sin(15\pi x)\sin(15\pi y)$ (Eq. 47), on the three domains of [1] in the background $[0, 1]^2$, each given as NURBS curves:
 
 1. **Circle** (Eq. 44): radius 0.3 around $(0.5, 0.5)$, exact as one rational quadratic curve;
 2. **Flower** (Eq. 45): one closed quintic spline interpolating it at 512 points;
-3. **Parallelogram** (Eq. 46): exact as four degree-1 curves, one per side;
-4. **Heart**: additional geometry, to test re-entrant corners.
+3. **Parallelogram** (Eq. 46): exact as four degree-1 curves, one per side.
 
-A background B-spline patch of degree $p$ is used on $N \times N$ knot spans, for $N = 40, 80, 160, 320$ and $h = 1/N$. Integration is exact using a Gauss-Legendre rule with $(p+1)^2$ points per span.
+A background B-spline patch of degree $p$ is used on $N \times N$ knot spans, $h = 1/N$: for the convergence rates, the 49 meshes $N = 40 \cdot 2^{k/16}$, $k = 0, \dots, 48$, rounded, from 40 to 320, so that the boundaries cut the knot spans differently on every mesh. Integration is exact using a Gauss-Legendre rule with $(p+1)^2$ points per span.
 
-The **Nitsche** and **ghost penalties** are scaled with the polynomial degree as in the table below, with $\chi = 20$ and $\kappa = 0.5$: the Nitsche scaling and both values are those of [1] (Section 3.5.1 and Eq. 17), and the ghost penalty scaling is that of [2].
+The Dirichlet condition is imposed with the **skew-symmetric Nitsche method without penalty** [4, 5]: the adjoint term with its sign flipped, and no Nitsche penalty, as its stability does not rely on one. With the symmetric method and its penalty of [1], the errors at $p \geq 3$ jump from one mesh to the next for any penalty, as it enforces the extrapolated trace too strongly. The shift is the **enhanced operator** of [6]: the Taylor expansion of order $2p$, which for tensor-product B-splines of degree $p$ is the full one, the knot span's polynomial evaluated at the true boundary point.
+
+The **ghost penalty** is scaled with the polynomial degree as in [2], with $\kappa = 0.5$ of [1] (Eq. 17):
 
 | | $p = 1$ | $p = 2$ | $p = 3$ | $p = 4$ | $p = 5$ |
 |---|---|---|---|---|---|
-| Nitsche, $\chi (p+1)^2$ | 80 | 180 | 320 | 500 | 720 |
 | Ghost, $\kappa / \big((p!)^2 (2p+1)\big)$ | $1.67 \cdot 10^{-1}$ | $2.50 \cdot 10^{-2}$ | $1.98 \cdot 10^{-3}$ | $9.65 \cdot 10^{-5}$ | $3.16 \cdot 10^{-6}$ |
 
-The standard Taylor series expansion around the surrogate boundary presented in all the SBM papers **does not provide monotonic convergence** at $p \geq 3$ GSBM. We add to it a **shifted subscale** $u'_h$, the part of the solution that the B-splines cannot represent, modelled from the residual $r_h = -\Delta u_h - f$ at the surrogate boundary and carried along the shift to the true one: $S_d^m u_h(\tilde{x}) + u'_h(x_\Gamma) = g_D(x_\Gamma)$. It vanishes with the residual of the exact solution, so the shift stays consistent.
-
-The correction doesn't change asymptotic rates, but it reduces mesh sensiticity and error levels, giving monotone convergence under both $h$- and $p$-refinement.
+These are `ADJOINT_FACTOR` $= -1$, `PENALTY_FACTOR` $= 0$ and `SHIFT_ORDER` $= 2p$ in `config/MaterialParameters_skew_p<p>.json`.
 
 ## Convergence rates at $p$-degree
 
@@ -35,18 +33,19 @@ From this folder, with Kratos on the Python path (writes `out/convergence_p<p>.c
 
 
 ```bash
-python3 convergence.py config/ProjectParameters_{circle,flower,parallelogram,heart}_taylor.json --degrees 1 2 3 4 5 --sizes 40 80 160 320 --materials "config/MaterialParameters_p{p}.json"
-python3 MainKratos.py config/ProjectParameters_{circle,flower,parallelogram,heart}_taylor.json --degrees 5 --cells 40 --materials "config/MaterialParameters_p{p}.json"
-python3 figures.py  # the figures of both sections
+OMP_NUM_THREADS=1 python3 convergence.py config/ProjectParameters_{circle,flower,parallelogram}_skew.json --degrees 1 2 3 4 5 --sizes 40 42 44 46 48 50 52 54 57 59 62 64 67 70 73 77 80 84 87 91 95 99 104 108 113 118 123 129 135 141 147 153 160 167 174 182 190 199 207 217 226 236 247 258 269 281 293 306 320 --materials "config/MaterialParameters_skew_p{p}.json"
+OMP_NUM_THREADS=1 python3 convergence.py config/ProjectParameters_{circle,flower,parallelogram}_skew_unenhanced.json --degrees 1 2 3 4 5 --sizes 40 42 44 46 48 50 52 54 57 59 62 64 67 70 73 77 80 84 87 91 95 99 104 108 113 118 123 129 135 141 147 153 160 167 174 182 190 199 207 217 226 236 247 258 269 281 293 306 320 --materials "config/MaterialParameters_skew_unenhanced_p{p}.json"
+python3 MainKratos.py config/ProjectParameters_{circle,flower,parallelogram}_skew.json --degrees 5 --cells 40 --materials "config/MaterialParameters_skew_p{p}.json"
+python3 figures.py  # the figures of all sections
 ```
+
+The convergence of the enhanced shift is drawn with a marker on every mesh, and beneath it, faded, that of the standard shift, the Taylor expansion of total order $p$ (`SHIFT_ORDER` $= p$ in `config/MaterialParameters_skew_unenhanced_p<p>.json`), with everything else the same. At $p = 1$ and $2$ the two give the same errors. From $p = 3$ the standard shift is less accurate, by a median factor of 1.2 to 1.5 at $p = 3$ and of 1.5 to 3 at $p = 5$, as [6] observes; at $p = 4$ and $5$ the errors of both jump from one mesh to the next.
 
 ![](out/gsbm_poisson_shifts_circle.png)
 
 ![](out/gsbm_poisson_shifts_flower.png)
 
 ![](out/gsbm_poisson_shifts_parallelogram.png)
-
-![](out/gsbm_poisson_shifts_heart.png)
 
 The $p = 1$ WSBM, SBM and O-SBM results from [1] are computed with the authors' Julia repository, [TheGeneralizedSBM.jl](https://github.com/CMOE-TUDelft/TheGeneralizedSBM.jl) [3], for the WSBM ($\alpha_h$), SBM ($\tilde{\alpha}_h$) and O-SBM ($\hat{\alpha}_h$, $\lambda = 0.5$) weights. Their absolute $L^2$ errors (Eq. 48), divided by $\Vert u \Vert$ in the figures:
 
@@ -64,11 +63,11 @@ The $p = 1$ WSBM, SBM and O-SBM results from [1] are computed with the authors' 
 
 ## Ghost regions at $p$-degree
 
-The fields at every degree on $N = 40$, written to `out/<domain>_taylor_p<p>_N40.vtk`:
+The fields at every degree on $N = 40$, written to `out/<domain>_skew_p<p>_N40.vtk`:
 
 ```bash
-python3 MainKratos.py config/ProjectParameters_{circle,flower,parallelogram,heart}_taylor.json --degrees 1 2 3 4 --cells 40 --materials "config/MaterialParameters_p{p}.json"
-python3 figures.py  # the figures of both sections
+python3 MainKratos.py config/ProjectParameters_{circle,flower,parallelogram}_skew.json --degrees 1 2 3 4 5 --cells 40 --materials "config/MaterialParameters_skew_p{p}.json"
+python3 figures.py  # the figures of all sections
 ```
 
 ![](out/gsbm_poisson_degrees_circle.png)
@@ -77,30 +76,11 @@ python3 figures.py  # the figures of both sections
 
 ![](out/gsbm_poisson_degrees_parallelogram.png)
 
-![](out/gsbm_poisson_degrees_heart.png)
+## The shifted subscale
 
-## The standard series, without the subscale
+The symmetric Nitsche method of [1], with its penalty $\chi (p+1)^2$, $\chi = 20$, the enhanced shift and the ghost penalty, with a **shifted subscale**: the shift rewritten with the equation. From the closest point $x_\Gamma$ on the true boundary, the solution is expanded along the line to the surrogate point $\tilde{x}$, and its derivatives along that line from the second order on are given by the equation, through the terms of its residual $r_h = -\Delta u_h - f$.
 
-The same benchmark with the shifted subscale off, `USE_RESIDUAL_TERMS` false in `config/MaterialParameters_standard_p<p>.json`:
-
-```bash
-python3 convergence.py config/ProjectParameters_{circle,flower,parallelogram,heart}_standard.json --degrees 1 2 3 4 5 --sizes 40 80 160 320 --materials "config/MaterialParameters_standard_p{p}.json"
-python3 figures.py
-```
-
-![](out/gsbm_poisson_standard.png)
-
-Without the subscale, the errors jump from one mesh to the next.
-At $p = 3$, with every combination of the Nitsche factor $\chi = 2, 20, 200, 2000$ and the ghost penalty factor $\kappa = 0.05, 0.5, 5, 50$, against the shift with the subscale and the factors of the table:
-
-```bash
-python3 penalties.py config/ProjectParameters_{circle,flower,parallelogram,heart}_standard.json --chi 2 20 200 2000 --kappa 0.05 0.5 5 50 --sizes 40 80 160 320
-python3 figures.py
-```
-
-![](out/gsbm_poisson_penalties.png)
-
-No combination fixes it. The best one depends on the domain, $\chi = 2$ on the circle and the flower but $\chi = 2000$ on the parallelogram.
+![](out/gsbm_poisson_subscale.png)
 
 ## References
 
@@ -109,3 +89,9 @@ No combination fixes it. The best one depends on the domain, $\chi = 2$ on the c
 [2] S. Sticko, G. Kreiss. Higher order cut finite elements for the wave equation. *J. Sci. Comput.* (2019).
 
 [3] O. Colomés, J. Modderman. TheGeneralizedSBM.jl: a Julia-based implementation of the Generalized Shifted Boundary Method using Gridap.jl (2025), https://github.com/CMOE-TUDelft/TheGeneralizedSBM.jl.
+
+[4] E. Burman. A penalty-free nonsymmetric Nitsche-type method for the weak imposition of boundary conditions. *SIAM J. Numer. Anal.* 50 (2012) 1959–1981.
+
+[5] J. H. Collins, A. Lozinski, G. Scovazzi. A penalty-free Shifted Boundary Method of arbitrary order. *Comput. Methods Appl. Mech. Engrg.* 417 (2023) 116301.
+
+[6] C. Hollweck, A. Gorgi, N. Antonelli, M. Wagner, R. Wüchner. Local $h$-, $p$-, and $k$-refinement strategies for the isogeometric shifted boundary method using THB-splines (2025), arXiv:2512.17666.
