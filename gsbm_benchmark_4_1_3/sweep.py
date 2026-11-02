@@ -10,7 +10,7 @@ run, replacing only the cases and positions run, and appends the Kratos log to
 
     python3 sweep.py [config/ProjectParameters_<case>.json ...] [--degrees 1 2 3 4 5]
         [--d -0.1 0 0.1 | --d-range 0.1 0.102 0.00002] [--cells 100]
-        [--materials "config/MaterialParameters_p{p}.json"] [--output out/sweep]
+        [--materials "config/MaterialParameters_skew_p{p}.json"] [--output out/sweep]
 
 --materials takes the materials of every degree instead of those of the json,
 with {p} for the degree. figures.py plots the results.
@@ -18,6 +18,7 @@ with {p} for the degree. figures.py plots the results.
 
 import argparse
 import csv
+import fcntl
 import os
 import sys
 import time
@@ -99,17 +100,23 @@ def l2_errors(parameters, log):
 def write_results(path, results):
     """Merges results, keyed by case and position, into a CSV file: they
     replace the rows of the same case and position and keep the others, every
-    case in the order of the file and by position."""
-    rows = {}
-    if path.exists():
-        with open(path) as f:
-            rows = {(row["case"], float(row["d"])): row for row in csv.DictReader(f)}
-    rows.update(results)
-    lines = [",".join(COLUMNS)]
-    for case in dict.fromkeys(case for case, _ in rows):
-        for d in sorted(d for c, d in rows if c == case):
-            lines.append(",".join(str(rows[(case, d)][column]) for column in COLUMNS))
-    path.write_text("\n".join(lines) + "\n")
+    case in the order of the file and by position. Several runs can write at
+    once: each merges under a lock, and replaces the file whole, so that a run
+    killed while writing leaves the previous file."""
+    with open(path.with_suffix(".lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        rows = {}
+        if path.exists():
+            with open(path) as f:
+                rows = {(row["case"], float(row["d"])): row for row in csv.DictReader(f)}
+        rows.update(results)
+        lines = [",".join(COLUMNS)]
+        for case in dict.fromkeys(case for case, _ in rows):
+            for d in sorted(d for c, d in rows if c == case):
+                lines.append(",".join(str(rows[(case, d)][column]) for column in COLUMNS))
+        temporary = path.with_suffix(f".{os.getpid()}.tmp")
+        temporary.write_text("\n".join(lines) + "\n")
+        os.replace(temporary, path)
 
 
 def main():

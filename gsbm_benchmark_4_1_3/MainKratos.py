@@ -10,7 +10,7 @@ with several positions, <output_file_name>_p<p>.vtk.series and
 to play them as one animation:
 
     python3 MainKratos.py [config/ProjectParameters_<case>.json ...] [--d -0.1 0 0.1]
-        [--degrees 1 2 3 4 5] [--cells 100] [--materials "config/MaterialParameters_p{p}.json"]
+        [--degrees 1 2 3 4 5] [--cells 100] [--materials "config/MaterialParameters_skew_p{p}.json"]
 """
 
 import argparse

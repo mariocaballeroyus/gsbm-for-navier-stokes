@@ -72,13 +72,13 @@ def background_values(background, variable, grids):
 
 class BoundaryDataProcess(KM.Process):
     """Assigns what the GSBM Dirichlet conditions read: g, to the unknown, at
-    the closest skin points, and VOLUME_SOURCE_DERIVATIVES, f and its
-    Cartesian derivatives of orders 0 to p - 2, every order n as
-    d_x^(n-k) d_y^k, k = 0 to n, at the points of the cut facets of
-    facets_model_part_name, those with an IDENTIFIER, for the shifted
-    subscale of the Taylor shift. g and f are expressions of the Kratos function
-    parser, f differentiated with SymPy. The nodes and cut facets are found
-    when the step starts, as VolumeFractionGsbmProcess creates them."""
+    the closest skin points; and, with a Kratos that has the shifted subscale
+    (VOLUME_SOURCE_DERIVATIVES), f and its Cartesian derivatives of orders 0
+    to p - 2, every order n as d_x^(n-k) d_y^k, k = 0 to n, at the points of
+    the cut facets of facets_model_part_name, those with an IDENTIFIER. g and
+    f are expressions of the Kratos function parser, f differentiated with
+    SymPy. The nodes and cut facets are found when the step starts, as
+    VolumeFractionGsbmProcess creates them."""
 
     def __init__(self, model, settings):
         super().__init__()
@@ -123,6 +123,9 @@ class BoundaryDataProcess(KM.Process):
 
         for node, value in zip(nodes, derivatives(self.g, [0], nodes)[:, 0]):
             node.SetValue(self.variable, value)
+
+        if not hasattr(IGA, "VOLUME_SOURCE_DERIVATIVES"):
+            return  # no shifted subscale to feed
 
         # The cut facets, at their points (the centers of their - sides)
         facets = [facet for facet in self.model[self.settings["facets_model_part_name"].GetString()].Conditions

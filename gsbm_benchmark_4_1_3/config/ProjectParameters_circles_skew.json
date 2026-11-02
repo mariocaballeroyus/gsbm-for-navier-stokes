@@ -1,6 +1,6 @@
 {
     "problem_data": {
-        "problem_name": "circles_standard",
+        "problem_name": "circles_skew",
         "parallel_type": "OpenMP",
         "echo_level": 0,
         "start_time": 0.0,
@@ -14,7 +14,7 @@
             "input_type": "use_input_model_part"
         },
         "material_import_settings": {
-            "materials_filename": "config/MaterialParameters_standard.json"
+            "materials_filename": "config/MaterialParameters_skew.json"
         },
         "convection_diffusion_variables": {
             "unknown_variable": "TEMPERATURE",
@@ -136,7 +136,7 @@
                 "variable_name": "TEMPERATURE",
                 "exact_solution": "sin(15*pi*x)*sin(15*pi*y)",
                 "number_of_samples": 401,
-                "output_file_name": "out/circles_standard",
+                "output_file_name": "out/circles_skew",
                 "skin_output_file_name": "out/skin_circles_nurbs"
             }
         }]
